@@ -1,0 +1,5 @@
+{
+  "name": "QCar Ground Station",
+  "description": "A professional fleet management and telemetry control interface for autonomous QCar vehicles, featuring real-time monitoring, AI-assisted mission planning, and platoon control.",
+  "requestFramePermissions": []
+}
