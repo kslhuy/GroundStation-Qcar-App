@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Activity, 
-  AlertTriangle, 
-  Globe, 
-  Radio, 
-  Terminal, 
+import {
+  Activity,
+  AlertTriangle,
+  Globe,
+  Radio,
+  Terminal,
   Network,
   Play,
   Square,
   Route,
   Settings2,
-  Code
+  Code,
+  Plug,
+  PlugZap
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -21,6 +23,7 @@ import { updateVehiclePhysics } from './services/mockVehicleService';
 import { VehicleCard } from './components/VehicleCard';
 import { TelemetryMap } from './components/TelemetryMap';
 import { StatCard } from './components/StatCard';
+import { bridgeService, ConnectionStatus, TelemetryMessage, VehicleStatusMessage } from './services/websocketBridgeService';
 
 const App: React.FC = () => {
   // -- State --
@@ -29,6 +32,7 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [globalEStop, setGlobalEStop] = useState(false);
   const [v2vActive, setV2VActive] = useState(false);
+  const [bridgeStatus, setBridgeStatus] = useState<ConnectionStatus>('disconnected');
 
   // -- Mission Parameters (Global) --
   // These allow the user to "Modify" the data before sending
@@ -46,6 +50,54 @@ const App: React.FC = () => {
     };
     setLogs(prev => [newLog, ...prev].slice(0, 50)); // Keep last 50 logs
   }, []);
+
+  // -- WebSocket Bridge Connection --
+  useEffect(() => {
+    // Subscribe to connection status changes
+    const unsubStatus = bridgeService.onStatusChange((status) => {
+      setBridgeStatus(status);
+      addLog(`Bridge ${status}`, status === 'connected' ? 'SUCCESS' : status === 'error' ? 'ERROR' : 'INFO');
+    });
+
+    // Subscribe to telemetry updates from real vehicles
+    const unsubTelemetry = bridgeService.onTelemetry((msg: TelemetryMessage) => {
+      setVehicles(prev => prev.map(v => {
+        if (v.id === msg.vehicle_id) {
+          return {
+            ...v,
+            telemetry: {
+              x: msg.x ?? v.telemetry.x,
+              y: msg.y ?? v.telemetry.y,
+              theta: msg.theta ?? v.telemetry.theta,
+              velocity: msg.velocity ?? v.telemetry.velocity,
+              battery: msg.battery ?? v.telemetry.battery,
+              steering: msg.steering ?? v.telemetry.steering,
+              throttle: msg.throttle ?? v.telemetry.throttle,
+              lastUpdate: Date.now()
+            }
+          };
+        }
+        return v;
+      }));
+    });
+
+    // Subscribe to vehicle status updates
+    const unsubVehicleStatus = bridgeService.onVehicleStatus((msg: VehicleStatusMessage) => {
+      setVehicles(prev => prev.map(v => {
+        if (v.id === msg.vehicle_id) {
+          const newStatus = msg.status === 'connected' ? VehicleStatus.IDLE : VehicleStatus.DISCONNECTED;
+          return { ...v, status: newStatus };
+        }
+        return v;
+      }));
+    });
+
+    return () => {
+      unsubStatus();
+      unsubTelemetry();
+      unsubVehicleStatus();
+    };
+  }, [addLog]);
 
   // -- Simulation Loop (Physics & Telemetry) --
   useEffect(() => {
@@ -92,13 +144,21 @@ const App: React.FC = () => {
     }));
   };
 
+  // -- Bridge Connection Handlers --
+  const handleConnectBridge = () => {
+    if (bridgeStatus === 'connected') {
+      bridgeService.disconnect();
+    } else {
+      bridgeService.connect();
+    }
+  };
+
   // -- Command Broadcasting (Global) --
-  // This helper function simulates the network transmission and logs the EXACT data payload
+  // Sends commands via WebSocket bridge when connected, otherwise logs locally
   const broadcastCommand = (action: string, params: object = {}) => {
     if (globalEStop && action !== 'EMERGENCY_STOP') return;
 
     // 1. Construct the Protocol Payload
-    // This is the actual JSON that would be sent over TCP/IP to the fleet
     const payload = {
       header: {
         timestamp: Date.now(),
@@ -112,17 +172,23 @@ const App: React.FC = () => {
       }
     };
 
-    // 2. Log the Payload for the user to see
-    addLog(`TX >> ${JSON.stringify(payload.body)}`, 'SUCCESS');
+    // 2. Send via WebSocket bridge if connected
+    if (bridgeStatus === 'connected') {
+      bridgeService.sendCommand(action, 'all', params as Record<string, unknown>);
+      addLog(`TX >> ${action} (via bridge)`, 'SUCCESS');
+    } else {
+      // Log locally when not connected (simulation mode)
+      addLog(`TX >> ${JSON.stringify(payload.body)} (local)`, 'INFO');
+    }
 
     return payload;
   };
 
   const handleGlobalStart = () => {
     // Execute Broadcast
-    broadcastCommand("START_MISSION", { 
-      target_speed: globalSpeed, 
-      sync_mode: "IMMEDIATE" 
+    broadcastCommand("START_MISSION", {
+      target_speed: globalSpeed,
+      sync_mode: "IMMEDIATE"
     });
 
     // Update State
@@ -135,9 +201,9 @@ const App: React.FC = () => {
   };
 
   const handleGlobalStop = () => {
-    broadcastCommand("HALT_MISSION", { 
+    broadcastCommand("HALT_MISSION", {
       deceleration_profile: "STANDARD",
-      final_state: "IDLE" 
+      final_state: "IDLE"
     });
 
     setVehicles(prev => prev.map(v => {
@@ -161,11 +227,11 @@ const App: React.FC = () => {
 
     setVehicles(prev => prev.map(v => {
       if (v.status !== VehicleStatus.DISCONNECTED) {
-        return { 
-          ...v, 
+        return {
+          ...v,
           mode: VehicleMode.AUTONOMOUS,
           status: VehicleStatus.ACTIVE,
-          targetSpeed: globalSpeed 
+          targetSpeed: globalSpeed
         };
       }
       return v;
@@ -175,15 +241,15 @@ const App: React.FC = () => {
   const toggleGlobalEStop = () => {
     const newState = !globalEStop;
     setGlobalEStop(newState);
-    
+
     // High Priority Safety Command
     broadcastCommand("EMERGENCY_OVERRIDE", { state: newState ? "ENGAGED" : "RELEASED" });
 
     addLog(
-      newState ? "GLOBAL EMERGENCY STOP ACTIVATED" : "Global Emergency Stop Release", 
+      newState ? "GLOBAL EMERGENCY STOP ACTIVATED" : "Global Emergency Stop Release",
       newState ? 'ERROR' : 'WARNING'
     );
-    
+
     if (newState) {
       setVehicles(prev => prev.map(v => ({
         ...v,
@@ -191,7 +257,7 @@ const App: React.FC = () => {
         targetSpeed: 0
       })));
     } else {
-       setVehicles(prev => prev.map(v => ({
+      setVehicles(prev => prev.map(v => ({
         ...v,
         status: VehicleStatus.IDLE
       })));
@@ -206,11 +272,11 @@ const App: React.FC = () => {
   };
 
   // -- Derived Metrics & Calculations --
-  
+
   const activeVehicles = vehicles.filter(v => v.status === VehicleStatus.ACTIVE).length;
   const connectedCount = vehicles.filter(v => v.status !== VehicleStatus.DISCONNECTED).length;
   const totalSpeed = vehicles.reduce((acc, v) => acc + v.telemetry.velocity, 0);
-  
+
   // -- Network Load Calculation Explanation --
   // The system estimates the current bandwidth usage on the control network.
   // 
@@ -221,16 +287,16 @@ const App: React.FC = () => {
   //    Higher velocity requires more frequent updates for the Distributed Observer to converge.
   // 
   // Example: 3 cars @ 1.0 m/s = (3 * 1) + (3 * 1.0 * 12) = 3 + 36 = 39 KB/s
-  const networkLoadValue = (connectedCount * 1) + (totalSpeed * 12); 
+  const networkLoadValue = (connectedCount * 1) + (totalSpeed * 12);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col overflow-hidden">
-      
+
       {/* Top Navigation Bar */}
       <header className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between flex-shrink-0 z-20 shadow-md">
         <div className="flex items-center gap-3">
           <div className="bg-indigo-600 p-2 rounded-lg">
-             <Globe className="text-white" size={20} />
+            <Globe className="text-white" size={20} />
           </div>
           <div>
             <h1 className="font-bold text-lg tracking-tight text-white">QCar Ground Station</h1>
@@ -245,11 +311,27 @@ const App: React.FC = () => {
               Sys: {activeVehicles > 0 ? 'ONLINE' : 'STANDBY'}
             </span>
             <span className="hidden md:inline">|</span>
-            <button 
+            {/* Bridge Connection Button */}
+            <button
+              onClick={handleConnectBridge}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-semibold transition-all
+                ${bridgeStatus === 'connected'
+                  ? 'bg-green-900/50 border-green-500 text-green-300 shadow-[0_0_10px_rgba(34,197,94,0.3)]'
+                  : bridgeStatus === 'connecting'
+                    ? 'bg-yellow-900/50 border-yellow-500 text-yellow-300 animate-pulse'
+                    : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
+                }
+              `}
+            >
+              {bridgeStatus === 'connected' ? <PlugZap size={14} /> : <Plug size={14} />}
+              {bridgeStatus === 'connected' ? 'BRIDGE ONLINE' : bridgeStatus === 'connecting' ? 'CONNECTING...' : 'CONNECT BRIDGE'}
+            </button>
+
+            <button
               onClick={toggleV2V}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-semibold transition-all
-                ${v2vActive 
-                  ? 'bg-indigo-900/50 border-indigo-500 text-indigo-300 shadow-[0_0_10px_rgba(99,102,241,0.3)]' 
+                ${v2vActive
+                  ? 'bg-indigo-900/50 border-indigo-500 text-indigo-300 shadow-[0_0_10px_rgba(99,102,241,0.3)]'
                   : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
                 }
               `}
@@ -259,11 +341,11 @@ const App: React.FC = () => {
             </button>
           </div>
 
-          <button 
+          <button
             onClick={toggleGlobalEStop}
             className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold transition-all shadow-lg
-              ${globalEStop 
-                ? 'bg-red-600 text-white animate-pulse ring-4 ring-red-900' 
+              ${globalEStop
+                ? 'bg-red-600 text-white animate-pulse ring-4 ring-red-900'
                 : 'bg-slate-800 text-red-500 border border-red-900/50 hover:bg-red-950'
               }
             `}
@@ -276,123 +358,123 @@ const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col lg:flex-row overflow-hidden p-4 gap-4">
-        
+
         {/* Left Column: Fleet List */}
         <section className="lg:w-1/4 flex flex-col gap-4 min-w-[300px]">
-           <div className="flex items-center justify-between mb-1 px-1">
-              <h2 className="font-semibold text-slate-300 flex items-center gap-2">
-                <Radio size={18} /> Fleet Overview
-              </h2>
-              <span className="text-xs bg-slate-800 px-2 py-1 rounded text-slate-400">Total: {vehicles.length}</span>
-           </div>
-           
-           <div className="flex-1 overflow-y-auto space-y-3 pr-1 custom-scrollbar">
-             {vehicles.map(v => (
-               <VehicleCard 
-                  key={v.id} 
-                  vehicle={v} 
-                  isSelected={v.id === selectedVehicleId}
-                  onSelect={() => setSelectedVehicleId(v.id)}
-                  onStatusChange={handleStatusChange}
-                  onSpeedChange={handleSpeedChange}
-                  onConfigChange={handleConfigChange}
-               />
-             ))}
-             
-             <button className="w-full py-3 border-2 border-dashed border-slate-800 rounded-xl text-slate-600 hover:text-slate-400 hover:border-slate-700 transition-colors text-sm font-medium flex items-center justify-center gap-2">
-                + Add Vehicle
-             </button>
-           </div>
+          <div className="flex items-center justify-between mb-1 px-1">
+            <h2 className="font-semibold text-slate-300 flex items-center gap-2">
+              <Radio size={18} /> Fleet Overview
+            </h2>
+            <span className="text-xs bg-slate-800 px-2 py-1 rounded text-slate-400">Total: {vehicles.length}</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1 custom-scrollbar">
+            {vehicles.map(v => (
+              <VehicleCard
+                key={v.id}
+                vehicle={v}
+                isSelected={v.id === selectedVehicleId}
+                onSelect={() => setSelectedVehicleId(v.id)}
+                onStatusChange={handleStatusChange}
+                onSpeedChange={handleSpeedChange}
+                onConfigChange={handleConfigChange}
+              />
+            ))}
+
+            <button className="w-full py-3 border-2 border-dashed border-slate-800 rounded-xl text-slate-600 hover:text-slate-400 hover:border-slate-700 transition-colors text-sm font-medium flex items-center justify-center gap-2">
+              + Add Vehicle
+            </button>
+          </div>
         </section>
 
         {/* Middle Column: Map & Mission Control */}
         <section className="flex-1 flex flex-col gap-4 overflow-y-auto lg:overflow-hidden">
-          
+
           {/* Mission Control Panel */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 flex-shrink-0">
-            
+
             {/* Stat: Active Units */}
             <div className="md:col-span-1">
-               <StatCard 
-                title="Active Units" 
-                value={activeVehicles} 
-                icon={Radio} 
+              <StatCard
+                title="Active Units"
+                value={activeVehicles}
+                icon={Radio}
                 color="text-green-400"
               />
             </div>
-            
+
             {/* Mission Control Center (Wider) */}
             <div className="md:col-span-2 bg-slate-800/50 backdrop-blur-sm border border-slate-700 p-3 rounded-xl shadow-sm flex flex-col gap-3">
               <div className="flex items-center justify-between text-xs font-medium text-slate-400 border-b border-slate-700/50 pb-1">
                 <span className="flex items-center gap-2"><Terminal size={12} /> MISSION CONTROL CENTER</span>
                 <span className="text-[10px] text-slate-500">BROADCAST</span>
               </div>
-              
-              <div className="flex gap-4 h-full">
-                 {/* Left: Controls */}
-                 <div className="flex-1 flex flex-col justify-between gap-1">
-                    <div className="flex items-center justify-between text-[10px] text-slate-400">
-                      <span>Ref Speed: <span className="text-indigo-300">{globalSpeed.toFixed(1)} m/s</span></span>
-                      <Settings2 size={10} />
-                    </div>
-                    <input 
-                      type="range" min="0" max="2.0" step="0.1"
-                      value={globalSpeed}
-                      onChange={(e) => setGlobalSpeed(parseFloat(e.target.value))}
-                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                    />
-                    
-                    <div className="flex items-center gap-2 mt-1">
-                       <select 
-                        value={globalPath}
-                        onChange={(e) => setGlobalPath(e.target.value)}
-                        className="bg-slate-900 border border-slate-700 text-xs text-slate-300 rounded px-2 py-1 flex-1 focus:ring-1 focus:ring-indigo-500 outline-none"
-                       >
-                         <option value="OVAL_TRACK">Oval Track</option>
-                         <option value="FIGURE_8">Figure 8</option>
-                         <option value="INFINITE_LOOP">Infinite Loop</option>
-                         <option value="CONVOY_LINE">Convoy Line</option>
-                       </select>
-                    </div>
-                 </div>
 
-                 {/* Right: Actions */}
-                 <div className="flex flex-col gap-2 w-1/2">
-                    <div className="flex gap-1">
-                      <button 
-                        onClick={handleGlobalStart}
-                        disabled={globalEStop}
-                        className="flex-1 bg-green-900/30 hover:bg-green-600 hover:text-white border border-green-800 text-green-400 rounded p-1.5 flex items-center justify-center transition-all disabled:opacity-30"
-                        title="Start Mission (Broadcast)"
-                      >
-                        <Play size={16} />
-                      </button>
-                      <button 
-                        onClick={handleGlobalStop}
-                        className="flex-1 bg-yellow-900/30 hover:bg-yellow-600 hover:text-white border border-yellow-800 text-yellow-400 rounded p-1.5 flex items-center justify-center transition-all"
-                        title="Halt Mission (Idle)"
-                      >
-                        <Square size={14} />
-                      </button>
-                    </div>
-                    <button 
-                      onClick={handleGlobalPathUpdate}
-                      disabled={globalEStop}
-                      className="flex-1 bg-indigo-900/30 hover:bg-indigo-600 hover:text-white border border-indigo-800 text-indigo-400 rounded p-1 flex items-center justify-center gap-2 text-xs font-medium transition-all disabled:opacity-30"
-                      title="Upload New Path Data"
+              <div className="flex gap-4 h-full">
+                {/* Left: Controls */}
+                <div className="flex-1 flex flex-col justify-between gap-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>Ref Speed: <span className="text-indigo-300">{globalSpeed.toFixed(1)} m/s</span></span>
+                    <Settings2 size={10} />
+                  </div>
+                  <input
+                    type="range" min="0" max="2.0" step="0.1"
+                    value={globalSpeed}
+                    onChange={(e) => setGlobalSpeed(parseFloat(e.target.value))}
+                    className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  />
+
+                  <div className="flex items-center gap-2 mt-1">
+                    <select
+                      value={globalPath}
+                      onChange={(e) => setGlobalPath(e.target.value)}
+                      className="bg-slate-900 border border-slate-700 text-xs text-slate-300 rounded px-2 py-1 flex-1 focus:ring-1 focus:ring-indigo-500 outline-none"
                     >
-                      <Route size={14} /> Deploy Path
+                      <option value="OVAL_TRACK">Oval Track</option>
+                      <option value="FIGURE_8">Figure 8</option>
+                      <option value="INFINITE_LOOP">Infinite Loop</option>
+                      <option value="CONVOY_LINE">Convoy Line</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Right: Actions */}
+                <div className="flex flex-col gap-2 w-1/2">
+                  <div className="flex gap-1">
+                    <button
+                      onClick={handleGlobalStart}
+                      disabled={globalEStop}
+                      className="flex-1 bg-green-900/30 hover:bg-green-600 hover:text-white border border-green-800 text-green-400 rounded p-1.5 flex items-center justify-center transition-all disabled:opacity-30"
+                      title="Start Mission (Broadcast)"
+                    >
+                      <Play size={16} />
                     </button>
-                 </div>
+                    <button
+                      onClick={handleGlobalStop}
+                      className="flex-1 bg-yellow-900/30 hover:bg-yellow-600 hover:text-white border border-yellow-800 text-yellow-400 rounded p-1.5 flex items-center justify-center transition-all"
+                      title="Halt Mission (Idle)"
+                    >
+                      <Square size={14} />
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleGlobalPathUpdate}
+                    disabled={globalEStop}
+                    className="flex-1 bg-indigo-900/30 hover:bg-indigo-600 hover:text-white border border-indigo-800 text-indigo-400 rounded p-1 flex items-center justify-center gap-2 text-xs font-medium transition-all disabled:opacity-30"
+                    title="Upload New Path Data"
+                  >
+                    <Route size={14} /> Deploy Path
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Stat: Network Load */}
             <div className="md:col-span-1">
-               <StatCard 
-                title="Network Load" 
-                value={`${networkLoadValue.toFixed(0)} KB/s`} 
-                icon={Activity} 
+              <StatCard
+                title="Network Load"
+                value={`${networkLoadValue.toFixed(0)} KB/s`}
+                icon={Activity}
                 color="text-blue-400"
               />
             </div>
@@ -400,23 +482,23 @@ const App: React.FC = () => {
 
           {/* Map Visualization */}
           <div className="flex-1 flex flex-col bg-slate-900/50 border border-slate-800 rounded-xl p-1 relative min-h-[400px]">
-             <div className="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-lg border border-slate-700 shadow-sm pointer-events-none">
-               <h3 className="text-xs font-mono text-slate-400 uppercase">Spatial Telemetry</h3>
-             </div>
-             <div className="flex-1 p-2">
-                <TelemetryMap 
-                  vehicles={vehicles} 
-                  selectedVehicleId={selectedVehicleId} 
-                  onSelectVehicle={setSelectedVehicleId}
-                  isV2VActive={v2vActive}
-                />
-             </div>
+            <div className="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-lg border border-slate-700 shadow-sm pointer-events-none">
+              <h3 className="text-xs font-mono text-slate-400 uppercase">Spatial Telemetry</h3>
+            </div>
+            <div className="flex-1 p-2">
+              <TelemetryMap
+                vehicles={vehicles}
+                selectedVehicleId={selectedVehicleId}
+                onSelectVehicle={setSelectedVehicleId}
+                isV2VActive={v2vActive}
+              />
+            </div>
           </div>
         </section>
 
         {/* Right Column: System Logs */}
         <section className="lg:w-1/4 flex flex-col gap-4 min-w-[300px]">
-          
+
           <div className="flex-1 bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden shadow-sm h-full">
             <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
               <div className="flex items-center gap-2 text-slate-300">
@@ -432,7 +514,7 @@ const App: React.FC = () => {
               {logs.map(log => (
                 <div key={log.id} className="flex gap-2 animate-in fade-in slide-in-from-left-1 duration-200 break-all">
                   <span className="text-slate-600 shrink-0">
-                    {log.timestamp.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}
+                    {log.timestamp.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                   </span>
                   <span className={`
                     ${log.level === 'ERROR' ? 'text-red-400 font-bold' : ''}
@@ -443,8 +525,8 @@ const App: React.FC = () => {
                     {log.vehicleId && <span className="text-slate-500 mr-1">[{log.vehicleId}]</span>}
                     {log.message.includes("TX >>") ? (
                       <span className="font-mono text-[10px] text-green-300/80 block border-l-2 border-green-800 pl-2 mt-1">
-                         <span className="flex items-center gap-1 opacity-50 mb-0.5"><Code size={8}/> PAYLOAD SENT</span>
-                         {log.message.replace("TX >> ", "")}
+                        <span className="flex items-center gap-1 opacity-50 mb-0.5"><Code size={8} /> PAYLOAD SENT</span>
+                        {log.message.replace("TX >> ", "")}
                       </span>
                     ) : (
                       log.message

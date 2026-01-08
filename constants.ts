@@ -7,9 +7,9 @@ export const REFRESH_RATE_MS = 100; // 10Hz Telemetry
 
 export const INITIAL_FLEET: Vehicle[] = [
   {
-    id: 'qcar-01',
+    id: 'qcar-00',
     name: 'QCar Alpha',
-    ip: '192.168.1.101',
+    ip: '192.168.137.102',
     port: 5000,
     status: VehicleStatus.DISCONNECTED,
     mode: VehicleMode.MANUAL,
@@ -28,9 +28,9 @@ export const INITIAL_FLEET: Vehicle[] = [
     }
   },
   {
-    id: 'qcar-02',
+    id: 'qcar-01',
     name: 'QCar Beta',
-    ip: '192.168.1.102',
+    ip: '192.168.137.208',
     port: 5001,
     status: VehicleStatus.DISCONNECTED,
     mode: VehicleMode.MANUAL,
@@ -49,9 +49,9 @@ export const INITIAL_FLEET: Vehicle[] = [
     }
   },
   {
-    id: 'qcar-03',
+    id: 'qcar-02',
     name: 'QCar Gamma',
-    ip: '192.168.1.103',
+    ip: '192.168.137.103',
     port: 5002,
     status: VehicleStatus.DISCONNECTED,
     mode: VehicleMode.MANUAL,
