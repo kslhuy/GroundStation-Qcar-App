@@ -24,11 +24,11 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
   const isEmergency = vehicle.status === VehicleStatus.EMERGENCY_STOP;
 
   return (
-    <div 
+    <div
       onClick={onSelect}
       className={`relative p-4 rounded-xl border transition-all cursor-pointer overflow-hidden
-        ${isSelected 
-          ? 'bg-slate-800/80 border-blue-500 shadow-lg shadow-blue-900/20' 
+        ${isSelected
+          ? 'bg-slate-800/80 border-blue-500 shadow-lg shadow-blue-900/20'
           : 'bg-slate-800/30 border-slate-700 hover:border-slate-600'
         }
       `}
@@ -57,26 +57,26 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
       {/* Controls - Only visible if selected/expanded */}
       {isSelected && isOnline && (
         <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-          
+
           {/* Action Buttons */}
           <div className="flex gap-2">
             {vehicle.status === VehicleStatus.IDLE || vehicle.status === VehicleStatus.ERROR ? (
-              <button 
+              <button
                 onClick={(e) => { e.stopPropagation(); onStatusChange(vehicle.id, VehicleStatus.ACTIVE); }}
                 className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white py-1.5 rounded text-sm font-medium transition-colors"
               >
                 <Play size={14} /> Start
               </button>
             ) : (
-              <button 
+              <button
                 onClick={(e) => { e.stopPropagation(); onStatusChange(vehicle.id, VehicleStatus.IDLE); }}
                 className="flex-1 flex items-center justify-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white py-1.5 rounded text-sm font-medium transition-colors"
               >
                 <Square size={14} /> Idle
               </button>
             )}
-            
-            <button 
+
+            <button
               onClick={(e) => { e.stopPropagation(); onStatusChange(vehicle.id, VehicleStatus.EMERGENCY_STOP); }}
               className="flex items-center justify-center px-3 bg-red-900/50 border border-red-700 hover:bg-red-800 text-red-200 rounded transition-colors"
               title="Individual E-Stop"
@@ -91,10 +91,10 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
               <span>Target Speed</span>
               <span>{vehicle.targetSpeed.toFixed(1)} m/s</span>
             </div>
-            <input 
-              type="range" 
-              min="0" 
-              max={MAX_VELOCITY} 
+            <input
+              type="range"
+              min="0"
+              max={MAX_VELOCITY}
               step="0.1"
               value={vehicle.targetSpeed}
               onChange={(e) => onSpeedChange(vehicle.id, parseFloat(e.target.value))}
@@ -132,27 +132,25 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
 
             {/* Estimation Logic */}
             <div className="space-y-1">
-               <label className="text-[10px] text-slate-500 uppercase flex items-center gap-1">
+              <label className="text-[10px] text-slate-500 uppercase flex items-center gap-1">
                 <BarChart2 size={10} /> Estimation
               </label>
               <div className="grid grid-cols-2 gap-1">
                 <button
                   onClick={() => onConfigChange(vehicle.id, 'estimationType', EstimationType.LOCAL_KALMAN)}
-                  className={`py-1.5 px-2 text-[10px] rounded border transition-all truncate ${
-                    vehicle.estimationType === EstimationType.LOCAL_KALMAN 
-                    ? 'bg-slate-700 border-indigo-500 text-indigo-300' 
+                  className={`py-1.5 px-2 text-[10px] rounded border transition-all truncate ${vehicle.estimationType === EstimationType.LOCAL_KALMAN
+                    ? 'bg-slate-700 border-indigo-500 text-indigo-300'
                     : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600'
-                  }`}
+                    }`}
                 >
                   Local Kalman
                 </button>
                 <button
                   onClick={() => onConfigChange(vehicle.id, 'estimationType', EstimationType.DISTRIBUTED_OBSERVER)}
-                  className={`py-1.5 px-2 text-[10px] rounded border transition-all truncate ${
-                    vehicle.estimationType === EstimationType.DISTRIBUTED_OBSERVER 
-                    ? 'bg-slate-700 border-indigo-500 text-indigo-300' 
+                  className={`py-1.5 px-2 text-[10px] rounded border transition-all truncate ${vehicle.estimationType === EstimationType.DISTRIBUTED_OBSERVER
+                    ? 'bg-slate-700 border-indigo-500 text-indigo-300'
                     : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600'
-                  }`}
+                    }`}
                 >
                   Dist. Observer
                 </button>
@@ -170,12 +168,12 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
       {/* Offline Overlay */}
       {!isOnline && (
         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px] flex items-center justify-center z-10">
-           <button 
-             onClick={(e) => { e.stopPropagation(); onStatusChange(vehicle.id, VehicleStatus.IDLE); }}
-             className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-full shadow-lg border border-slate-500 transition-all"
-           >
-             Connect
-           </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onStatusChange(vehicle.id, VehicleStatus.IDLE); }}
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-full shadow-lg border border-slate-500 transition-all"
+          >
+            Connect
+          </button>
         </div>
       )}
     </div>

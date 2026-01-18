@@ -127,24 +127,17 @@ class WebSocketBridgeService {
     }
 
     /**
-     * Send a command to vehicle(s)
+     * Send a raw command object to the bridge
      */
-    sendCommand(action: string, target: string | 'all' = 'all', params: Record<string, unknown> = {}): boolean {
+    private sendRawCommand(command: object): boolean {
         if (!this.isConnected()) {
             console.warn('[WS] Cannot send command - not connected');
             return false;
         }
 
-        const command: CommandMessage = {
-            type: 'command',
-            target,
-            action,
-            params,
-        };
-
         try {
             this.socket!.send(JSON.stringify(command));
-            console.log(`[WS] Sent command: ${action} -> ${target}`);
+            // console.log(`[WS] Sent:`, command); 
             return true;
         } catch (error) {
             console.error('[WS] Failed to send command:', error);
@@ -153,31 +146,151 @@ class WebSocketBridgeService {
     }
 
     /**
-     * Send velocity command to vehicle(s)
+     * Send velocity command
      */
     setVelocity(velocity: number, target: string | 'all' = 'all'): boolean {
-        return this.sendCommand('set_velocity', target, { velocity });
+        // Backend expects: { type: 'set_velocity', v_ref: 1.0 }
+        // If target is specific, the bridge routing handles it if we send to specific socket, 
+        // OR the bridge expects a wrapper. 
+        // Based on analysis: The bridge forwards the JSON payload directly to the TCP stream for the target.
+        // So we must format it EXACTLY as the QCar expects.
+
+        const payload = {
+            type: 'set_velocity',
+            v_ref: velocity
+        };
+
+        return this.sendCommand('set_velocity', target, payload);
     }
 
     /**
-     * Send start command
+     * Send generic command (Wrapper to handle bridge routing)
+     * The Python Bridge expects: { type: ..., target: ... } to know where to route,
+     * OR it parses the payload.
+     * 
+     * Ref checking `websocket_bridge.py`:
+     * > msg_type = data.get('type', 'command')
+     * > target = data.get('target', 'all')
+     * > await self._send_to_vehicle(target, data)
+     * 
+     * And `remote_controller.py` validation:
+     * > cmd_type = command['type']
+     * 
+     * So we need to strip the 'target' before sending to TCP? 
+     * Actually `websocket_bridge.py` sends the WHOLE data dict to the vehicle.
+     * The Vehicle's `remote_controller` ignores extra fields usually, but let's be clean.
      */
-    startMission(target: string | 'all' = 'all', speed?: number): boolean {
-        return this.sendCommand('start_mission', target, { speed });
+    sendCommand(action: string, target: string | 'all' = 'all', payload: Record<string, unknown> = {}): boolean {
+        // We attach target for the Bridge to route, and the payload is merged in.
+        // The 'action' typically maps to 'type' for the QCar.
+        const fullCommand = {
+            type: action,
+            target: target,
+            ...payload
+        };
+        return this.sendRawCommand(fullCommand);
     }
 
     /**
-     * Send stop command
+     * Manual Control Command
+     * High frequency command
+     */
+    sendManualControl(throttle: number, steering: number, target: string): boolean {
+        return this.sendCommand('manual_control', target, {
+            throttle,
+            steering
+        });
+    }
+
+    /**
+     * Enable Manual Mode
+     */
+    enableManualMode(target: string, type: 'keyboard' | 'joystick' = 'keyboard'): boolean {
+        return this.sendCommand('enable_manual_mode', target, { control_type: type });
+    }
+
+    /**
+     * Disable Manual Mode
+     */
+    disableManualMode(target: string): boolean {
+        return this.sendCommand('disable_manual_mode', target);
+    }
+
+    /**
+     * Start Mission / Vehicle
+     */
+    startMission(target: string | 'all' = 'all'): boolean {
+        return this.sendCommand('start', target);
+    }
+
+    /**
+     * Stop Mission / Vehicle
      */
     stopMission(target: string | 'all' = 'all'): boolean {
-        return this.sendCommand('stop_mission', target, {});
+        return this.sendCommand('stop', target);
     }
 
     /**
-     * Send emergency stop
+     * Emergency Stop
      */
     emergencyStop(target: string | 'all' = 'all'): boolean {
-        return this.sendCommand('emergency_stop', target, { immediate: true });
+        return this.sendCommand('emergency_stop', target);
+    }
+
+    /**
+     * Perception Control
+     */
+    setPerception(enabled: boolean, target: string | 'all' = 'all'): boolean {
+        const type = enabled ? 'activate_perception' : 'disable_perception';
+        return this.sendCommand(type, target);
+    }
+
+    /**
+     * Platoon: Setup Formation
+     * formation: { [carId]: position } e.g. { "1": 1, "2": 2 }
+     */
+    setPlatoonFormation(formation: Record<string, number>): boolean {
+        // The bridge needs to broadcast this or we send individually?
+        // remote_controller.py has `setup_global_platoon_formation` but that is internal to GS.
+        // We should send a specific command that the GS Bridge or Main Controller recognizes 
+        // IF we were talking to the GS logic. 
+        // BUT we are talking directly to vehicles via the bridge passthrough?
+        // Wait, `websocket_bridge.py` is a dumb pipe.
+        // So we must talk to the CARS directly.
+        // 
+        // Implementation:
+        // We must calculate who is leader (pos 1) and who is follower.
+        // And send 'enable_platoon_leader' / 'enable_platoon_follower' to them.
+
+        // This logic is complex to do in frontend if we want atomic sync.
+        // But for now, we will expose the primitives.
+        return false;
+    }
+
+    /**
+     * Platoon: Enable Leader
+     */
+    enablePlatoonLeader(target: string): boolean {
+        return this.sendCommand('enable_platoon_leader', target, { role: 'leader' });
+    }
+
+    /**
+     * Platoon: Enable Follower
+     */
+    enablePlatoonFollower(target: string, leaderId: number, gap: number = 1.0): boolean {
+        return this.sendCommand('enable_platoon_follower', target, {
+            role: 'follower',
+            leader_id: leaderId,
+            following_distance: gap
+        });
+    }
+
+    /**
+     * Platoon: Start
+     * Used to trigger the platoon after setup
+     */
+    startPlatoon(target: string, leaderId: number): boolean {
+        return this.sendCommand('start_platoon', target, { leader_id: leaderId });
     }
 
     /**

@@ -1,7 +1,12 @@
 import React from 'react';
 import { Vehicle, VehicleStatus } from '../types';
-import { MAP_HEIGHT_METERS, MAP_WIDTH_METERS } from '../constants';
 import { Navigation, Wifi } from 'lucide-react';
+
+// New Map Config
+const MAP_WIDTH_METERS = 12; // -6 to 6
+const MAP_HEIGHT_METERS = 6; // -3 to 3
+const MAP_OFFSET_X = 6;      // Offset to center
+const MAP_OFFSET_Y = 3;      // Offset to center
 
 interface TelemetryMapProps {
   vehicles: Vehicle[];
@@ -12,8 +17,10 @@ interface TelemetryMapProps {
 
 export const TelemetryMap: React.FC<TelemetryMapProps> = ({ vehicles, selectedVehicleId, onSelectVehicle, isV2VActive }) => {
   // Convert meters to percentage for CSS positioning
-  const scaleX = (x: number) => (x / MAP_WIDTH_METERS) * 100;
-  const scaleY = (y: number) => (100 - (y / MAP_HEIGHT_METERS) * 100); // Invert Y for standard cartesian
+  // Convert meters to percentage for CSS positioning
+  // Input: x [-6, 6], y [-3, 3] -> Output: [0, 100]%
+  const scaleX = (x: number) => ((x + MAP_OFFSET_X) / MAP_WIDTH_METERS) * 100;
+  const scaleY = (y: number) => (100 - ((y + MAP_OFFSET_Y) / MAP_HEIGHT_METERS) * 100); // Invert Y
 
   // Filter active vehicles for V2V lines
   const activeVehicles = vehicles.filter(v => v.status !== VehicleStatus.DISCONNECTED && v.status !== VehicleStatus.ERROR);
@@ -21,16 +28,15 @@ export const TelemetryMap: React.FC<TelemetryMapProps> = ({ vehicles, selectedVe
   return (
     <div className="relative w-full h-[400px] bg-slate-900 border border-slate-700 rounded-xl overflow-hidden shadow-inner group">
       {/* Grid Lines */}
-      <div className="absolute inset-0" 
-           style={{ 
-             backgroundImage: 'linear-gradient(#334155 1px, transparent 1px), linear-gradient(90deg, #334155 1px, transparent 1px)', 
-             backgroundSize: '10% 10%' 
-           }}>
+      <div className="absolute inset-0"
+        style={{
+          backgroundImage: 'linear-gradient(#334155 1px, transparent 1px), linear-gradient(90deg, #334155 1px, transparent 1px)',
+          backgroundSize: '10% 10%'
+        }}>
       </div>
-      
-      {/* Origin Marker */}
+
       <div className="absolute bottom-2 left-2 text-xs text-slate-500 font-mono">
-        (0,0)
+        (0,0) Center
       </div>
 
       {/* V2V Network Visualization Layer */}
@@ -46,7 +52,7 @@ export const TelemetryMap: React.FC<TelemetryMapProps> = ({ vehicles, selectedVe
               <circle cx="5" cy="5" r="5" fill="#818cf8" />
             </marker>
           </defs>
-          {activeVehicles.map((v1, i) => 
+          {activeVehicles.map((v1, i) =>
             activeVehicles.slice(i + 1).map(v2 => (
               <line
                 key={`${v1.id}-${v2.id}`}
@@ -68,7 +74,7 @@ export const TelemetryMap: React.FC<TelemetryMapProps> = ({ vehicles, selectedVe
       {vehicles.map((v) => {
         const isSelected = v.id === selectedVehicleId;
         const isOffline = v.status === VehicleStatus.DISCONNECTED;
-        
+
         return (
           <div
             key={v.id}
@@ -90,7 +96,7 @@ export const TelemetryMap: React.FC<TelemetryMapProps> = ({ vehicles, selectedVe
 
             {/* Vehicle Icon/Shape */}
             <div className="relative">
-              <div 
+              <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center border-2 shadow-lg transition-colors
                   ${isSelected ? 'border-blue-400 shadow-blue-500/30' : 'border-slate-600'}
                   ${isOffline ? 'bg-slate-800' : v.status === VehicleStatus.ERROR ? 'bg-red-900/80' : 'bg-indigo-600'}
@@ -101,7 +107,7 @@ export const TelemetryMap: React.FC<TelemetryMapProps> = ({ vehicles, selectedVe
               >
                 <Navigation size={16} className="text-white transform rotate-45" />
               </div>
-              
+
               {/* Label */}
               <div className={`absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-bold px-2 py-0.5 rounded bg-slate-900/80 backdrop-blur
                  ${isSelected ? 'text-blue-400 border border-blue-500/30' : 'text-slate-300'}
