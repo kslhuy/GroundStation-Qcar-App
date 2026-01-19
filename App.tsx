@@ -21,7 +21,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 // Internal imports
-import { Vehicle, VehicleStatus, LogEntry, VehicleMode } from './types';
+import { Vehicle, VehicleStatus, LogEntry } from './types';
 import { INITIAL_FLEET, REFRESH_RATE_MS } from './constants';
 import { updateVehiclePhysics } from './services/mockVehicleService';
 import { VehicleCard } from './components/VehicleCard';
@@ -32,11 +32,12 @@ import { bridgeService, ConnectionStatus, TelemetryMessage, VehicleStatusMessage
 // New Components
 import ManualControlPanel from './components/ManualControlPanel';
 import PlatoonControl from './components/PlatoonControl';
+import { RealTimeDataPlot } from './components/RealTimeDataPlot';
 
 const App: React.FC = () => {
   // -- State --
-  const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_FLEET);
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(INITIAL_FLEET[0]?.id || null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);  // Start empty, populate from bridge
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [globalEStop, setGlobalEStop] = useState(false);
   const [v2vActive, setV2VActive] = useState(false);
@@ -44,10 +45,9 @@ const App: React.FC = () => {
 
   // UI State
   const [rightPanelMode, setRightPanelMode] = useState<'DETAILS' | 'MANUAL' | 'PLATOON' | 'SCOPE'>('DETAILS');
+  const [viewMode, setViewMode] = useState<'map' | 'local' | 'fleet'>('map'); // Map/Data toggle
 
-  // -- Mission Parameters --
-  const [globalSpeed, setGlobalSpeed] = useState<number>(0.5);
-  const [globalPath, setGlobalPath] = useState<string>('FIGURE_8');
+
 
   // -- Helpers --
   const addLog = useCallback((message: string, level: LogEntry['level'] = 'INFO', vehicleId?: string) => {
@@ -63,43 +63,121 @@ const App: React.FC = () => {
 
   // -- WebSocket Bridge --
   useEffect(() => {
+    // Auto-connect to bridge on mount
+    bridgeService.connect();
+
     // Status
     const unsubStatus = bridgeService.onStatusChange((status) => {
       setBridgeStatus(status);
       addLog(`Bridge ${status}`, status === 'connected' ? 'SUCCESS' : status === 'error' ? 'ERROR' : 'INFO');
+
+      // When bridge connects, request vehicle status to sync existing connections
+      if (status === 'connected') {
+        setTimeout(() => {
+          bridgeService.requestStatus();
+          addLog('Requesting vehicle status from Python GS...', 'INFO');
+        }, 500);
+      }
     });
 
-    // Telemetry
+    // Telemetry - handles both 'telemetry' and 'v2v_status' message types
     const unsubTelemetry = bridgeService.onTelemetry((msg: TelemetryMessage) => {
       setVehicles(prev => prev.map(v => {
         if (v.id === msg.vehicle_id) {
+          // Merge telemetry data - support both Python (th, v, u, delta) and Web (theta, velocity, throttle, steering) field names
+          const updatedTelemetry = {
+            ...v.telemetry,
+            ...(msg.x !== undefined && { x: msg.x }),
+            ...(msg.y !== undefined && { y: msg.y }),
+            // theta: accept both 'theta' (Web) and 'th' (Python)
+            ...((msg.theta !== undefined || msg.th !== undefined) && { theta: msg.theta ?? msg.th }),
+            // velocity: accept both 'velocity' (Web) and 'v' (Python)
+            ...((msg.velocity !== undefined || msg.v !== undefined) && { velocity: msg.velocity ?? msg.v }),
+            ...(msg.battery !== undefined && { battery: msg.battery }),
+            // steering: accept both 'steering' (Web) and 'delta' (Python)
+            ...((msg.steering !== undefined || msg.delta !== undefined) && { steering: msg.steering ?? msg.delta }),
+            // throttle: accept both 'throttle' (Web) and 'u' (Python)
+            ...((msg.throttle !== undefined || msg.u !== undefined) && { throttle: msg.throttle ?? msg.u }),
+            ...(msg.state !== undefined && { state: msg.state }),
+            ...(msg.gps_valid !== undefined && { gps_valid: msg.gps_valid }),
+
+            // V2V Status (from periodic broadcast)
+            ...(msg.v2v_active !== undefined && { v2v_active: msg.v2v_active }),
+            ...(msg.v2v_peers !== undefined && { v2v_peers: msg.v2v_peers }),
+            ...(msg.v2v_protocol !== undefined && { v2v_protocol: msg.v2v_protocol }),
+
+            // Platoon Status (from periodic broadcast)
+            ...(msg.platoon_enabled !== undefined && { platoon_enabled: msg.platoon_enabled }),
+            ...(msg.platoon_is_leader !== undefined && { platoon_is_leader: msg.platoon_is_leader }),
+            ...(msg.platoon_position !== undefined && { platoon_position: msg.platoon_position }),
+            ...(msg.platoon_leader_id !== undefined && { platoon_leader_id: msg.platoon_leader_id }),
+
+            // Observer and Controller Types (from periodic broadcast)
+            ...(msg.local_observer_type !== undefined && { local_observer_type: msg.local_observer_type }),
+            ...(msg.fleet_observer_type !== undefined && { fleet_observer_type: msg.fleet_observer_type }),
+            ...(msg.longitudinal_ctrl_type !== undefined && { longitudinal_ctrl_type: msg.longitudinal_ctrl_type }),
+            ...(msg.lateral_ctrl_type !== undefined && { lateral_ctrl_type: msg.lateral_ctrl_type }),
+
+            // Perception Status
+            ...(msg.perception_active !== undefined && { perception_active: msg.perception_active }),
+            ...(msg.scopes_active !== undefined && { scopes_active: msg.scopes_active }),
+
+            lastUpdate: Date.now()
+          };
+
+          // Just update telemetry - state is displayed raw from Python
           return {
             ...v,
-            telemetry: {
-              x: msg.x ?? v.telemetry.x,
-              y: msg.y ?? v.telemetry.y,
-              theta: msg.theta ?? v.telemetry.theta,
-              velocity: msg.velocity ?? v.telemetry.velocity,
-              battery: msg.battery ?? v.telemetry.battery,
-              steering: msg.steering ?? v.telemetry.steering,
-              throttle: msg.throttle ?? v.telemetry.throttle,
-              lastUpdate: Date.now()
-            }
+            telemetry: updatedTelemetry
           };
         }
         return v;
       }));
     });
 
-    // Vehicle Status
+    // Vehicle Status - dynamically add/update vehicles
     const unsubVehicleStatus = bridgeService.onVehicleStatus((msg: VehicleStatusMessage) => {
-      setVehicles(prev => prev.map(v => {
-        if (v.id === msg.vehicle_id) {
-          const newStatus = msg.status === 'connected' ? VehicleStatus.IDLE : VehicleStatus.DISCONNECTED;
-          return { ...v, status: newStatus };
+      setVehicles(prev => {
+        const existingIndex = prev.findIndex(v => v.id === msg.vehicle_id);
+
+        if (msg.status === 'connected') {
+          if (existingIndex >= 0) {
+            // Update existing vehicle
+            return prev.map((v, idx) => idx === existingIndex ? { ...v, status: VehicleStatus.IDLE } : v);
+          } else {
+            // Add new vehicle
+            const newVehicle: Vehicle = {
+              id: msg.vehicle_id,
+              name: `QCar ${msg.vehicle_id.replace('qcar-', '')}`,
+              status: VehicleStatus.IDLE,
+              config: {
+                controllerId: 'pid',
+                estimatorId: 'ekf',
+                pathId: 'default'
+              },
+              targetSpeed: 0,
+              telemetry: {
+                x: 0,
+                y: 0,
+                theta: 0,
+                velocity: 0,
+                battery: 100,
+                steering: 0,
+                throttle: 0,
+                lastUpdate: Date.now()
+              }
+            };
+            addLog(`Vehicle ${msg.vehicle_id} connected from ${msg.ip || 'unknown'}`, 'SUCCESS');
+            return [...prev, newVehicle];
+          }
+        } else {
+          // Disconnected
+          if (existingIndex >= 0) {
+            return prev.map((v, idx) => idx === existingIndex ? { ...v, status: VehicleStatus.DISCONNECTED } : v);
+          }
         }
-        return v;
-      }));
+        return prev;
+      });
     });
 
     return () => {
@@ -108,6 +186,13 @@ const App: React.FC = () => {
       unsubVehicleStatus();
     };
   }, [addLog]);
+
+  // Auto-select first vehicle when vehicles arrive
+  useEffect(() => {
+    if (vehicles.length > 0 && !selectedVehicleId) {
+      setSelectedVehicleId(vehicles[0].id);
+    }
+  }, [vehicles, selectedVehicleId]);
 
   // -- Mock Physics Loop --
   useEffect(() => {
@@ -152,13 +237,18 @@ const App: React.FC = () => {
   };
 
   const handleMissionStart = () => {
-    bridgeService.startMission('all', globalSpeed);
+    bridgeService.startMission('all');
     addLog('Mission START Broadcast', 'SUCCESS');
   };
 
   const handleMissionStop = () => {
     bridgeService.stopMission('all');
     addLog('Mission STOP Broadcast', 'WARNING');
+  };
+
+  const handleVehicleNameChange = (id: string, newName: string) => {
+    setVehicles(prev => prev.map(v => v.id === id ? { ...v, name: newName } : v));
+    addLog(`Vehicle ${id} renamed to ${newName}`, 'INFO');
   };
 
   // -- Derived --
@@ -249,20 +339,21 @@ const App: React.FC = () => {
                 }}
                 onStatusChange={(id, status) => {
                   if (status === VehicleStatus.ACTIVE) {
-                    bridgeService.startMission(id, globalSpeed);
+                    bridgeService.startMission(id);
                     addLog(`Sending START to ${id}`, 'SUCCESS');
-                  } else if (status === VehicleStatus.IDLE) {
+                  } else if (status === VehicleStatus.STOPPED) {
                     bridgeService.stopMission(id);
                     addLog(`Sending STOP to ${id}`, 'WARNING');
                   } else if (status === VehicleStatus.EMERGENCY_STOP) {
                     bridgeService.emergencyStop(id);
                     addLog(`Sending E-STOP to ${id}`, 'ERROR');
                   }
-                  // Optimistic update
-                  setVehicles(prev => prev.map(veh => veh.id === id ? { ...veh, status } : veh));
                 }}
-                onSpeedChange={() => { }}
-                onConfigChange={() => { }}
+                onSpeedChange={(id, speed) => {
+                  bridgeService.setVelocity(speed, id);
+                  setVehicles(prev => prev.map(veh => veh.id === id ? { ...veh, targetSpeed: speed } : veh));
+                }}
+                onNameChange={handleVehicleNameChange}
               />
             ))}
           </div>
@@ -275,61 +366,84 @@ const App: React.FC = () => {
           </div>
         </aside>
 
-        {/* Center: Mission & Map */}
+        {/* Center: Mission & Visualization */}
         <section className="flex-1 flex flex-col relative min-w-[400px]">
 
-          {/* Map Area */}
+          {/* Visualization Area */}
           <div className="flex-1 bg-slate-950 relative">
-            <div className="absolute inset-0">
-              <TelemetryMap
-                vehicles={vehicles}
-                selectedVehicleId={selectedVehicleId}
-                onSelectVehicle={setSelectedVehicleId}
-                isV2VActive={v2vActive}
-              />
-            </div>
-
-            {/* Mission Control Overlay (Top Center) */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-xl p-2 shadow-2xl flex items-center gap-4">
-
-              <div className="flex flex-col gap-0.5 px-2 border-r border-slate-700/50">
-                <label className="text-[9px] text-slate-400 uppercase font-bold">Ref Speed</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range" min="0" max="2.0" step="0.1"
-                    value={globalSpeed} onChange={e => setGlobalSpeed(parseFloat(e.target.value))}
-                    className="w-20 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                  />
-                  <span className="text-xs font-mono text-indigo-300 w-8">{globalSpeed.toFixed(1)}</span>
-                </div>
+            {viewMode === 'map' ? (
+              <div className="absolute inset-0">
+                <TelemetryMap
+                  vehicles={vehicles}
+                  selectedVehicleId={selectedVehicleId}
+                  onSelectVehicle={setSelectedVehicleId}
+                  isV2VActive={v2vActive}
+                />
               </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleMissionStart}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white p-2 rounded-lg shadow-lg hover:shadow-emerald-500/20 transition-all"
-                  title="Broadcast START"
-                >
-                  <Play size={18} fill="currentColor" />
-                </button>
-                <button
-                  onClick={handleMissionStop}
-                  className="bg-amber-600 hover:bg-amber-500 text-white p-2 rounded-lg shadow-lg hover:shadow-amber-500/20 transition-all"
-                  title="Broadcast STOP"
-                >
-                  <Square size={18} fill="currentColor" />
-                </button>
+            ) : (
+              <div className="absolute inset-0">
+                <RealTimeDataPlot
+                  vehicles={vehicles}
+                  selectedVehicleId={selectedVehicleId}
+                  mode={viewMode === 'local' ? 'local' : 'fleet'}
+                />
               </div>
+            )}
+
+            {/* View Mode Toggle */}
+            <div className="absolute top-4 left-4 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-lg p-1 shadow-lg flex gap-1">
+              <button
+                onClick={() => setViewMode('map')}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'map' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+              >
+                Map View
+              </button>
+              <button
+                onClick={() => setViewMode('local')}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'local' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+              >
+                Local Data
+              </button>
+              <button
+                onClick={() => setViewMode('fleet')}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'fleet' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+              >
+                Fleet Data
+              </button>
             </div>
           </div>
 
-          {/* Bottom Right: Logs Overlay */}
-          <div className="absolute bottom-4 right-4 w-96 max-h-60 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-lg shadow-2xl flex flex-col overflow-hidden z-20">
-            <div className="p-2 border-b border-slate-800/50 flex justify-between items-center bg-slate-800/20">
-              <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1"><Terminal size={10} /> SYSTEM LOGS</span>
+
+          {/* Bottom: System Logs */}
+          <div className="h-48 bg-slate-900/90 backdrop-blur border-t border-slate-700 flex flex-col">
+            <div className="px-4 py-2 border-b border-slate-800/50 flex justify-between items-center bg-slate-800/20">
+              <div className="flex items-center gap-4">
+                <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+                  <Terminal size={10} /> SYSTEM LOGS
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleMissionStart}
+                    className="flex items-center gap-1 bg-emerald-600/80 hover:bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-medium transition-all"
+                    title="Broadcast START"
+                  >
+                    <Play size={12} /> Start All
+                  </button>
+                  <button
+                    onClick={handleMissionStop}
+                    className="flex items-center gap-1 bg-amber-600/80 hover:bg-amber-600 text-white px-2 py-1 rounded text-[10px] font-medium transition-all"
+                    title="Broadcast STOP"
+                  >
+                    <Square size={12} /> Stop All
+                  </button>
+                </div>
+              </div>
               <button onClick={() => setLogs([])} className="text-[10px] text-slate-500 hover:text-white">CLEAR</button>
             </div>
-            <div className="flex-1 overflow-y-auto p-2 font-mono text-[10px] space-y-1.5 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-3 font-mono text-[10px] space-y-1.5 custom-scrollbar">
               {logs.length === 0 && <div className="text-center text-slate-600 italic py-2">System Ready</div>}
               {logs.map(log => (
                 <div key={log.id} className="flex gap-2 opacity-90">

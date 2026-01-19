@@ -21,8 +21,11 @@ export interface BridgeMessage {
 }
 
 export interface TelemetryMessage extends BridgeMessage {
-    type: 'telemetry';
+    type: 'telemetry' | 'v2v_status';  // Both types carry telemetry data
     vehicle_id: string;
+
+    // Core telemetry (10Hz from _build_telemetry_data)
+    // Web naming convention
     x?: number;
     y?: number;
     theta?: number;
@@ -30,8 +33,46 @@ export interface TelemetryMessage extends BridgeMessage {
     battery?: number;
     steering?: number;
     throttle?: number;
-    state?: string;
+    state?: string;  // State machine state name
+    gps_valid?: boolean;
+
+    // Python naming convention (from vehicle_logic._build_telemetry_data)
+    th?: number;      // theta
+    v?: number;       // velocity
+    u?: number;       // throttle
+    delta?: number;   // steering
+
+    // Periodic status updates (1Hz from _broadcast_periodic_status)
+    v2v_active?: boolean;
+    v2v_peers?: number;
+    v2v_protocol?: string;
+    v2v_local_rate?: number;
+    v2v_fleet_rate?: number;
+
+    platoon_enabled?: boolean;
+    platoon_is_leader?: boolean;
+    platoon_position?: number;
+    platoon_leader_id?: number;
+    platoon_setup_complete?: boolean;
+
+    // Observer and Controller types
+    local_observer_type?: string;
+    fleet_observer_type?: string;
+    longitudinal_ctrl_type?: string;
+    lateral_ctrl_type?: string;
+
+    // Perception status
+    perception_active?: boolean;
+    scopes_active?: boolean;
+
+    // V2V status detail (in 'data' field for v2v_status messages)
+    data?: {
+        status?: string;
+        connected_peers?: number;
+        fleet_size?: number;
+    };
 }
+
 
 export interface VehicleStatusMessage extends BridgeMessage {
     type: 'vehicle_status';
@@ -308,6 +349,34 @@ class WebSocketBridgeService {
     }
 
     /**
+     * Set controller type (longitudinal or lateral)
+     */
+    setController(category: 'longitudinal' | 'lateral', controllerType: string, target: string | 'all' = 'all'): boolean {
+        return this.sendCommand('set_controller', target, {
+            category,
+            controller_type: controllerType
+        });
+    }
+
+    /**
+     * Set local observer type
+     */
+    setLocalObserver(observerType: string, target: string | 'all' = 'all'): boolean {
+        return this.sendCommand('set_local_observer', target, {
+            observer_type: observerType
+        });
+    }
+
+    /**
+     * Set fleet observer type
+     */
+    setFleetObserver(observerType: string, target: string | 'all' = 'all'): boolean {
+        return this.sendCommand('set_fleet_observer', target, {
+            observer_type: observerType
+        });
+    }
+
+    /**
      * Check if connected to bridge
      */
     isConnected(): boolean {
@@ -352,10 +421,18 @@ class WebSocketBridgeService {
     }
 
     /**
-     * Subscribe to telemetry updates
+     * Subscribe to telemetry updates (handles both 'telemetry' and 'v2v_status' types)
      */
     onTelemetry(handler: (msg: TelemetryMessage) => void): () => void {
-        return this.on('telemetry', handler as BridgeEventHandler);
+        // Subscribe to both message types
+        const unsub1 = this.on('telemetry', handler as BridgeEventHandler);
+        const unsub2 = this.on('v2v_status', handler as BridgeEventHandler);
+
+        // Return combined unsubscribe function
+        return () => {
+            unsub1();
+            unsub2();
+        };
     }
 
     /**
