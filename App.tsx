@@ -9,30 +9,26 @@ import {
   Network,
   Play,
   Square,
-  Route,
-  Settings2,
   Plug,
   PlugZap,
-  Gamepad2,
   Link2,
-  Eye,
   X
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 // Internal imports
 import { Vehicle, VehicleStatus, LogEntry } from './types';
-import { INITIAL_FLEET, REFRESH_RATE_MS } from './constants';
+import { REFRESH_RATE_MS } from './constants';
 import { updateVehiclePhysics } from './services/mockVehicleService';
 import { VehicleCard } from './components/VehicleCard';
 import { TelemetryMap } from './components/TelemetryMap';
-import { StatCard } from './components/StatCard';
 import { bridgeService, ConnectionStatus, TelemetryMessage, VehicleStatusMessage } from './services/websocketBridgeService';
 
 // New Components
 import ManualControlPanel from './components/ManualControlPanel';
 import PlatoonControl from './components/PlatoonControl';
 import { RealTimeDataPlot } from './components/RealTimeDataPlot';
+import VehicleControlPanel from './components/VehicleControlPanel';
 
 const App: React.FC = () => {
   // -- State --
@@ -331,27 +327,7 @@ const App: React.FC = () => {
                 isSelected={v.id === selectedVehicleId}
                 onSelect={() => {
                   setSelectedVehicleId(v.id);
-                  if (rightPanelMode === 'MANUAL') {
-                    // optional: keep manual mode open but switch target?
-                  } else {
-                    setRightPanelMode('DETAILS');
-                  }
-                }}
-                onStatusChange={(id, status) => {
-                  if (status === VehicleStatus.ACTIVE) {
-                    bridgeService.startMission(id);
-                    addLog(`Sending START to ${id}`, 'SUCCESS');
-                  } else if (status === VehicleStatus.STOPPED) {
-                    bridgeService.stopMission(id);
-                    addLog(`Sending STOP to ${id}`, 'WARNING');
-                  } else if (status === VehicleStatus.EMERGENCY_STOP) {
-                    bridgeService.emergencyStop(id);
-                    addLog(`Sending E-STOP to ${id}`, 'ERROR');
-                  }
-                }}
-                onSpeedChange={(id, speed) => {
-                  bridgeService.setVelocity(speed, id);
-                  setVehicles(prev => prev.map(veh => veh.id === id ? { ...veh, targetSpeed: speed } : veh));
+                  setRightPanelMode('DETAILS');
                 }}
                 onNameChange={handleVehicleNameChange}
               />
@@ -477,56 +453,34 @@ const App: React.FC = () => {
                 onClose={() => setRightPanelMode('DETAILS')}
               />
             ) : (
-              // Default DETAILS View
-              <div className="flex flex-col h-full p-4 gap-6">
+              // Default DETAILS View - Using VehicleControlPanel
+              <div className="flex flex-col h-full p-4">
                 {!selectedVehicle ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-2">
                     <Radio size={32} />
                     <p className="text-sm">Select a vehicle to view details</p>
                   </div>
                 ) : (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-xl font-bold text-white tracking-tight">{selectedVehicle.name}</h2>
-                      <div className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${selectedVehicle.status === 'ACTIVE' ? 'bg-emerald-900/30 border-emerald-500 text-emerald-400' : 'bg-slate-800 border-slate-600 text-slate-400'}`}>
-                        {selectedVehicle.status}
-                      </div>
-                    </div>
-
-                    {/* Quick Telemetry */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <StatCard title="Velocity" value={`${selectedVehicle.telemetry.velocity.toFixed(2)} m/s`} icon={Activity} color="text-indigo-400" />
-                      <StatCard title="Battery" value={`${selectedVehicle.telemetry.battery.toFixed(0)}%`} icon={Activity} color="text-emerald-400" />
-                    </div>
-
-                    {/* Control Actions */}
-                    <div className="space-y-3">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Actions</p>
-
-                      <button
-                        onClick={() => setRightPanelMode('MANUAL')}
-                        className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl font-semibold shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 transition-all"
-                      >
-                        <Gamepad2 size={18} /> Manual Control
-                      </button>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <button className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-2">
-                          <Eye size={14} /> Toggle YOLO
-                        </button>
-                        <button className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-2">
-                          <Route size={14} /> Set Path
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Scope / Advanced */}
-                    <div className="mt-auto border-t border-slate-800 pt-4">
-                      <button className="w-full text-slate-500 hover:text-white text-xs flex items-center justify-center gap-2 py-2">
-                        Advanced Settings <Settings2 size={12} />
-                      </button>
-                    </div>
-                  </>
+                  <VehicleControlPanel
+                    vehicle={selectedVehicle}
+                    onManualMode={() => setRightPanelMode('MANUAL')}
+                    onStatusChange={(id, status) => {
+                      if (status === VehicleStatus.ACTIVE) {
+                        bridgeService.startMission(id);
+                        addLog(`Sending START to ${id}`, 'SUCCESS');
+                      } else if (status === VehicleStatus.STOPPED) {
+                        bridgeService.stopMission(id);
+                        addLog(`Sending STOP to ${id}`, 'WARNING');
+                      } else if (status === VehicleStatus.EMERGENCY_STOP) {
+                        bridgeService.emergencyStop(id);
+                        addLog(`Sending E-STOP to ${id}`, 'ERROR');
+                      }
+                    }}
+                    onSpeedChange={(id, speed) => {
+                      bridgeService.setVelocity(speed, id);
+                      setVehicles(prev => prev.map(veh => veh.id === id ? { ...veh, targetSpeed: speed } : veh));
+                    }}
+                  />
                 )}
               </div>
             )}
