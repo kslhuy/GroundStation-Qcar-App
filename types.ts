@@ -60,6 +60,10 @@ export interface TelemetryData {
   // Perception (from periodic broadcast)
   perception_active?: boolean;
   scopes_active?: boolean;
+
+  // Reference Path (from node_sequence generation)
+  path_x?: number[];
+  path_y?: number[];
 }
 
 // Vehicle Configuration

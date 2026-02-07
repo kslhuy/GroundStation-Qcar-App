@@ -29,7 +29,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [localData, setLocalData] = useState<Map<string, PlotData>>(new Map());
     const [fleetData, setFleetData] = useState<Map<string, PlotData>>(new Map());
-    const maxDataPoints = 300; // 6 seconds at 50Hz
+    const maxDataPoints = 1000; // 20 seconds at 50Hz (Safety margin over 15s window)
     const timeWindow = 15; // seconds to display
 
     // Helper to create empty PlotData
@@ -49,7 +49,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             const vehicle = vehicles.find(v => v.id === selectedVehicleId);
             if (vehicle) {
                 setLocalData(prev => {
-                    const newData = new Map(prev);
+                    const newData = new Map<string, PlotData>(prev);
                     const vehicleData: PlotData = newData.get(vehicle.id) ?? createEmptyPlotData();
 
                     // Add new data points
@@ -71,11 +71,13 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             }
         } else if (mode === 'fleet') {
             setFleetData(prev => {
-                const newData = new Map(prev);
+                const newData = new Map<string, PlotData>(prev);
                 vehicles.forEach(vehicle => {
                     const vehicleData: PlotData = newData.get(vehicle.id) ?? createEmptyPlotData();
 
                     vehicleData.velocity.push({ time: now, value: vehicle.telemetry.velocity });
+                    vehicleData.throttle.push({ time: now, value: vehicle.telemetry.throttle });
+                    vehicleData.steering.push({ time: now, value: vehicle.telemetry.steering });
                     vehicleData.x.push({ time: now, value: vehicle.telemetry.x });
                     vehicleData.y.push({ time: now, value: vehicle.telemetry.y });
 
@@ -130,12 +132,14 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
         // Layout: 3x3 grid similar to Python GS
         const margin = 40;
+        // Increase left margin for labels
+        const leftMargin = 50;
         const plotWidth = (width - 4 * margin) / 3;
         const plotHeight = (height - 4 * margin) / 3;
 
         // Row 1: Trajectory (2 cols), Velocity
         drawTrajectoryPlot(ctx, margin, margin, plotWidth * 2 + margin, plotHeight * 2 + margin, data);
-        drawTimePlot(ctx, margin * 2 + plotWidth * 2, margin, plotWidth, plotHeight,
+        drawTimePlot(ctx, margin * 2 + plotWidth * 2 + 10, margin, plotWidth - 10, plotHeight,
             data.velocity, 'Velocity [m/s]', '#3b82f6', startTime, endTime, 0, 2);
 
         // Row 2: Heading (skip for now - need theta data)
@@ -156,13 +160,21 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         endTime: number
     ) => {
         const margin = 40;
+        const leftMargin = 50; // Extra for labels
         const plotWidth = (width - 3 * margin) / 2;
         const plotHeight = (height - 3 * margin) / 2;
 
         // Row 1: Fleet Trajectories (left), Fleet Velocities (right)
-        drawFleetTrajectories(ctx, margin, margin, plotWidth, plotHeight * 2 + margin);
-        drawFleetVelocities(ctx, margin * 2 + plotWidth, margin, plotWidth, plotHeight,
+        drawFleetTrajectories(ctx, margin, margin, plotWidth, plotHeight);
+        drawFleetVelocities(ctx, margin * 2 + plotWidth + 10, margin, plotWidth - 10, plotHeight,
             startTime, endTime);
+
+        // Row 2: Fleet Throttle (left), Fleet Steering (right)
+        const row2Y = margin * 2 + plotHeight;
+        drawFleetControls(ctx, margin + 10, row2Y, plotWidth - 10, plotHeight,
+            startTime, endTime, 'throttle', 'Fleet Throttle', -1, 1);
+        drawFleetControls(ctx, margin * 2 + plotWidth + 10, row2Y, plotWidth - 10, plotHeight,
+            startTime, endTime, 'steering', 'Fleet Steering', -1, 1);
     };
 
     const drawTrajectoryPlot = (
@@ -268,7 +280,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         ctx.font = '11px Inter';
         ctx.fillText(label, x + 5, y + 15);
 
-        // Plot data
+        // Draw Data Lines
         if (data.length > 0) {
             const filteredData = data.filter(p => p.time >= startTime && p.time <= endTime);
 
@@ -288,6 +300,24 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
                 ctx.stroke();
             }
         }
+
+        // Draw Y-axis labels
+        ctx.fillStyle = '#64748b'; // slate-500
+        ctx.font = '10px Inter, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+        // Draw 3 labels: Max, Mid, Min
+        const labelX = x - 5;
+
+        // Max
+        ctx.fillText(maxVal.toFixed(1), labelX, y);
+
+        // Mid
+        ctx.fillText(((maxVal + minVal) / 2).toFixed(1), labelX, y + h / 2);
+
+        // Min
+        ctx.fillText(minVal.toFixed(1), labelX, y + h);
 
         // Border
         ctx.strokeStyle = '#475569';
@@ -431,6 +461,97 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
             colorIndex++;
         });
+
+        // Draw Y-axis labels
+        ctx.fillStyle = '#64748b'; // slate-500
+        ctx.font = '10px Inter, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+        // Fleet vel range is fixed 0-2 (from code: (point.value - 0) / 2)
+        const minVal = 0;
+        const maxVal = 2;
+        const labelX = x - 5;
+
+        ctx.fillText(maxVal.toFixed(1), labelX, y);
+        ctx.fillText(((maxVal + minVal) / 2).toFixed(1), labelX, y + h / 2);
+        ctx.fillText(minVal.toFixed(1), labelX, y + h);
+
+        // Border
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, w, h);
+    };
+
+    const drawFleetControls = (
+        ctx: CanvasRenderingContext2D,
+        x: number, y: number, w: number, h: number,
+        startTime: number,
+        endTime: number,
+        field: 'throttle' | 'steering',
+        label: string,
+        minVal: number,
+        maxVal: number
+    ) => {
+        // Background
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(x, y, w, h);
+
+        // Grid
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 5; i++) {
+            ctx.beginPath();
+            ctx.moveTo(x, y + (h * i / 5));
+            ctx.lineTo(x + w, y + (h * i / 5));
+            ctx.stroke();
+        }
+
+        // Title
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '11px Inter';
+        ctx.fillText(label, x + 5, y + 15);
+
+        // Colors
+        const colors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
+        let colorIndex = 0;
+
+        fleetData.forEach((data, vehicleId) => {
+            const color = colors[colorIndex % colors.length];
+            const points = data[field].filter(p => p.time >= startTime && p.time <= endTime);
+
+            if (points.length > 1) {
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+
+                points.forEach((point, i) => {
+                    const px = x + ((point.time - startTime) / (endTime - startTime)) * w;
+                    // Normalize to height: (val - min) / (max - min)
+                    const py = y + h - ((point.value - minVal) / (maxVal - minVal)) * h;
+
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                });
+
+                ctx.stroke();
+            }
+
+            colorIndex++;
+        });
+
+        // Draw Y-axis labels
+        ctx.fillStyle = '#64748b'; // slate-500
+        ctx.font = '10px Inter, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+        // Draw 3 labels: Max, Mid, Min
+        const labelX = x - 5;
+
+        ctx.fillText(maxVal.toFixed(1), labelX, y);
+        ctx.fillText(((maxVal + minVal) / 2).toFixed(1), labelX, y + h / 2);
+        ctx.fillText(minVal.toFixed(1), labelX, y + h);
 
         // Border
         ctx.strokeStyle = '#475569';

@@ -106,11 +106,10 @@ You need **TWO terminal windows** open at the same time.
 # Activate conda environment
 conda activate Qcar
 
-# Navigate to bridge directory
-cd C:\Users\Quang Huy Nugyen\Desktop\PHD_paper\Simulation\QCAR\QCar2_Cran\Development\multi_vehicle_self_driving_RealQcar\python
 
-# Run the bridge
-python websocket_bridge.py
+# Run the bridge (Bridge is a GUI python version)
+cd .\Development\multi_vehicle_self_driving_RealQcar\qcar\GUI     
+python .\app_main.py
 ```
 
 **Expected output:**
@@ -142,13 +141,17 @@ cd C:\Users\Quang Huy Nugyen\Desktop\PHD_paper\Simulation\QCAR\QCar2_Cran\Ground
 
 # Start the development server
 npm run dev
+
+or 
+# For host another device in same Wifi
+npm run dev -- --host 
 ```
 
 **Expected output:**
 ```
   VITE v6.x.x  ready in 500 ms
 
-  ➜  Local:   http://localhost:5173/
+  ➜  Local:    http://localhost:3000/
   ➜  Network: use --host to expose
   ➜  press h + enter to show help
 ```

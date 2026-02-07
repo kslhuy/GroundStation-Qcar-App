@@ -7,7 +7,9 @@ import { Vehicle, VehicleStatus, TelemetryData } from '../types';
 
 // Bridge configuration
 export const BRIDGE_CONFIG = {
-    url: 'ws://localhost:8080',
+    // Use window.location.hostname to automatically target the serving computer's IP
+    // This allows the phone to connect to the PC if the Web App is loaded via the PC's IP
+    url: `ws://${window.location.hostname}:8080`,
     reconnectInterval: 3000,
     maxReconnectAttempts: 10,
     heartbeatInterval: 5000,
@@ -64,6 +66,10 @@ export interface TelemetryMessage extends BridgeMessage {
     // Perception status
     perception_active?: boolean;
     scopes_active?: boolean;
+
+    // Reference Path
+    path_x?: number[];
+    path_y?: number[];
 
     // V2V status detail (in 'data' field for v2v_status messages)
     data?: {
@@ -287,25 +293,30 @@ class WebSocketBridgeService {
     }
 
     /**
+     * V2V Control
+     */
+    setV2V(enabled: boolean, target: string | 'all' = 'all'): boolean {
+        // If target is all, we want to trigger the Python GS logic
+        if (target === 'all') {
+            const type = enabled ? 'establish_v2v_network' : 'terminate_v2v_network';
+            return this.sendRawCommand({ type: type });
+        }
+
+        // Otherwise send to specific car (fallback)
+        const type = enabled ? 'activate_v2v' : 'disable_v2v';
+        return this.sendCommand(type, target);
+    }
+
+    /**
      * Platoon: Setup Formation
      * formation: { [carId]: position } e.g. { "1": 1, "2": 2 }
      */
     setPlatoonFormation(formation: Record<string, number>): boolean {
-        // The bridge needs to broadcast this or we send individually?
-        // remote_controller.py has `setup_global_platoon_formation` but that is internal to GS.
-        // We should send a specific command that the GS Bridge or Main Controller recognizes 
-        // IF we were talking to the GS logic. 
-        // BUT we are talking directly to vehicles via the bridge passthrough?
-        // Wait, `websocket_bridge.py` is a dumb pipe.
-        // So we must talk to the CARS directly.
-        // 
-        // Implementation:
-        // We must calculate who is leader (pos 1) and who is follower.
-        // And send 'enable_platoon_leader' / 'enable_platoon_follower' to them.
-
-        // This logic is complex to do in frontend if we want atomic sync.
-        // But for now, we will expose the primitives.
-        return false;
+        // Send to all cars so they know the global formation
+        // The Python backend (remote_controller.py) validates this command structure
+        return this.sendCommand('setup_platoon_formation', 'all', {
+            formation: formation
+        });
     }
 
     /**
@@ -332,6 +343,25 @@ class WebSocketBridgeService {
      */
     startPlatoon(target: string, leaderId: number): boolean {
         return this.sendCommand('start_platoon', target, { leader_id: leaderId });
+    }
+
+    /**
+     * Trigger Platoon (Global)
+     * Tells Python GS to execute its _trigger_platoon logic
+     */
+    triggerPlatoon(): boolean {
+        // We send a direct message with type 'trigger_platoon'
+        // The Python bridge _handle_websocket_message intercepts this
+        return this.sendRawCommand({ type: 'trigger_platoon' });
+    }
+
+    /**
+     * Setup Platoon (Global) 
+     * Tells Python GS to execute its _setup_platoon logic
+     */
+    setupPlatoon(): boolean {
+        // The Python bridge _handle_websocket_message intercepts this
+        return this.sendRawCommand({ type: 'setup_platoon' });
     }
 
     /**

@@ -12,7 +12,13 @@ import {
   Plug,
   PlugZap,
   Link2,
-  X
+  X,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelBottomClose,
+  PanelBottomOpen,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -40,9 +46,30 @@ const App: React.FC = () => {
   const [bridgeStatus, setBridgeStatus] = useState<ConnectionStatus>('disconnected');
 
   // UI State
-  const [rightPanelMode, setRightPanelMode] = useState<'DETAILS' | 'MANUAL' | 'PLATOON' | 'SCOPE'>('DETAILS');
+  const [rightPanelMode, setRightPanelMode] = useState<'DETAILS' | 'MANUAL' | 'PLATOON' | 'SCOPE' | 'CLOSED'>('CLOSED');
   const [viewMode, setViewMode] = useState<'map' | 'local' | 'fleet'>('map'); // Map/Data toggle
+  const [isFleetSidebarOpen, setIsFleetSidebarOpen] = useState(window.innerWidth >= 768);
+  const [isLogsPanelOpen, setIsLogsPanelOpen] = useState(true);
 
+  // Handle resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setIsFleetSidebarOpen(false);
+      } else {
+        setIsFleetSidebarOpen(true);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Update right panel when vehicle selected
+  useEffect(() => {
+    if (selectedVehicleId && rightPanelMode === 'CLOSED') {
+      setRightPanelMode('DETAILS');
+    }
+  }, [selectedVehicleId, rightPanelMode]);
 
 
   // -- Helpers --
@@ -117,6 +144,10 @@ const App: React.FC = () => {
             // Perception Status
             ...(msg.perception_active !== undefined && { perception_active: msg.perception_active }),
             ...(msg.scopes_active !== undefined && { scopes_active: msg.scopes_active }),
+
+            // Reference Path
+            ...(msg.path_x !== undefined && { path_x: msg.path_x }),
+            ...(msg.path_y !== undefined && { path_y: msg.path_y }),
 
             lastUpdate: Date.now()
           };
@@ -226,9 +257,7 @@ const App: React.FC = () => {
   const toggleV2V = () => {
     const newState = !v2vActive;
     setV2VActive(newState);
-    // Assuming we have a v2v command or just log it for now as per previous, 
-    // but the implementation plan didn't strictly specify logic for this beyond the button.
-    // bridgeService.sendCommand('v2v_config', 'all', { enabled: newState });
+    bridgeService.setV2V(newState, 'all');
     addLog(`V2V Network ${newState ? 'Enabled' : 'Disabled'}`, 'INFO');
   };
 
@@ -257,12 +286,19 @@ const App: React.FC = () => {
       {/* 1. Header */}
       <header className="h-14 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between shrink-0 shadow-md z-20">
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsFleetSidebarOpen(!isFleetSidebarOpen)}
+            className="text-slate-400 hover:text-white transition-colors"
+            title={isFleetSidebarOpen ? "Collapse Fleet Panel" : "Expand Fleet Panel"}
+          >
+            {isFleetSidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+          </button>
           <div className="bg-indigo-600 p-1.5 rounded-lg">
             <Globe className="text-white" size={18} />
           </div>
           <div>
             <h1 className="font-bold text-base tracking-tight text-white leading-tight">QCar Ground Station</h1>
-            <p className="text-[10px] text-slate-400">Advanced Fleet Control</p>
+            <p className="hidden md:block text-[10px] text-slate-400">Advanced Fleet Control</p>
           </div>
         </div>
 
@@ -282,7 +318,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           <button
             onClick={handleConnectBridge}
             className={`p-2 rounded-lg transition-all ${bridgeStatus === 'connected' ? 'bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
@@ -301,22 +337,42 @@ const App: React.FC = () => {
 
           <button
             onClick={toggleGlobalEStop}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg font-bold text-xs transition-all ${globalEStop ? 'bg-red-600 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]' : 'bg-red-950/30 text-red-500 border border-red-900/50 hover:bg-red-900/50'}`}
+            className={`flex items-center gap-2 px-3 md:px-4 py-1.5 rounded-lg font-bold text-xs transition-all ${globalEStop ? 'bg-red-600 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]' : 'bg-red-950/30 text-red-500 border border-red-900/50 hover:bg-red-900/50'}`}
           >
             <AlertTriangle size={14} />
-            {globalEStop ? 'E-STOP ENGAGED' : 'EMERGENCY STOP'}
+            <span className="hidden md:inline">{globalEStop ? 'E-STOP ENGAGED' : 'EMERGENCY STOP'}</span>
+            <span className="md:hidden">STOP</span>
           </button>
         </div>
       </header>
 
       {/* 2. Main Workspace */}
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex overflow-hidden relative">
+
+        {/* Backdrop for Mobile Sidebar */}
+        {isFleetSidebarOpen && (
+          <div
+            className="md:hidden absolute inset-0 bg-black/50 z-20 backdrop-blur-sm"
+            onClick={() => setIsFleetSidebarOpen(false)}
+          />
+        )}
 
         {/* Left: Fleet Sidebar */}
-        <aside className="w-72 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 z-10">
+        <aside className={`
+            absolute md:relative z-30 h-full
+            w-64 md:w-52
+            bg-slate-900 border-r border-slate-800 
+            flex flex-col shrink-0 
+            transition-all duration-300 ease-in-out
+            ${isFleetSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:!w-0 md:!border-0'}
+        `}>
           <div className="p-3 border-b border-slate-800 flex justify-between items-center text-xs font-semibold text-slate-400">
             <span className="flex items-center gap-2"><Radio size={14} /> FLEET UNITS</span>
             <span className="bg-slate-800 px-1.5 py-0.5 rounded text-white">{vehicles.length}</span>
+            {/* Mobile Close Button */}
+            <button className="md:hidden text-slate-500" onClick={() => setIsFleetSidebarOpen(false)}>
+              <X size={16} />
+            </button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
@@ -328,6 +384,7 @@ const App: React.FC = () => {
                 onSelect={() => {
                   setSelectedVehicleId(v.id);
                   setRightPanelMode('DETAILS');
+                  if (window.innerWidth < 768) setIsFleetSidebarOpen(false);
                 }}
                 onNameChange={handleVehicleNameChange}
               />
@@ -336,14 +393,36 @@ const App: React.FC = () => {
 
           {/* Quick Actions Footer */}
           <div className="p-3 border-t border-slate-800 bg-slate-950/30 grid grid-cols-2 gap-2">
-            <button onClick={() => setRightPanelMode('PLATOON')} className="col-span-2 bg-slate-800 hover:bg-slate-700 text-xs text-indigo-300 py-2 rounded border border-slate-700 flex items-center justify-center gap-2">
-              <Link2 size={14} /> Configure Platoon
+            <button
+              onClick={() => {
+                bridgeService.setupPlatoon();
+                addLog("Requested Platoon Setup", "INFO");
+              }}
+              className="bg-slate-800 hover:bg-slate-700 text-xs text-indigo-300 py-2 rounded border border-slate-700 flex items-center justify-center gap-2"
+              title="Use Python GS logic to setup platoon from current config"
+            >
+              <Link2 size={14} /> Setup Platoon
+            </button>
+
+            <button
+              onClick={() => {
+                bridgeService.triggerPlatoon();
+                addLog("Requested Platoon Trigger", "INFO");
+              }}
+              className="bg-emerald-900/30 hover:bg-emerald-900/50 text-xs text-emerald-300 py-2 rounded border border-emerald-900/50 flex items-center justify-center gap-2"
+              title="Trigger Platoon Start (Global)"
+            >
+              <Play size={14} /> Trigger Platoon
+            </button>
+
+            <button onClick={() => setRightPanelMode('PLATOON')} className="col-span-2 bg-slate-800 hover:bg-slate-700 text-xs text-slate-400 py-1 rounded border border-slate-700 flex items-center justify-center gap-2">
+              Configure Details
             </button>
           </div>
         </aside>
 
         {/* Center: Mission & Visualization */}
-        <section className="flex-1 flex flex-col relative min-w-[400px]">
+        <section className="flex-1 flex flex-col relative w-full min-w-0">
 
           {/* Visualization Area */}
           <div className="flex-1 bg-slate-950 relative">
@@ -352,7 +431,10 @@ const App: React.FC = () => {
                 <TelemetryMap
                   vehicles={vehicles}
                   selectedVehicleId={selectedVehicleId}
-                  onSelectVehicle={setSelectedVehicleId}
+                  onSelectVehicle={(id) => {
+                    setSelectedVehicleId(id);
+                    setRightPanelMode('DETAILS');
+                  }}
                   isV2VActive={v2vActive}
                 />
               </div>
@@ -367,38 +449,38 @@ const App: React.FC = () => {
             )}
 
             {/* View Mode Toggle */}
-            <div className="absolute top-4 left-4 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-lg p-1 shadow-lg flex gap-1">
+            <div className="absolute top-4 left-4 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-lg p-1 shadow-lg flex gap-1 z-10">
               <button
                 onClick={() => setViewMode('map')}
                 className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'map' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                   }`}
               >
-                Map View
+                Map
               </button>
               <button
                 onClick={() => setViewMode('local')}
                 className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'local' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                   }`}
               >
-                Local Data
+                Local
               </button>
               <button
                 onClick={() => setViewMode('fleet')}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'fleet' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                className={`hidden sm:block px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'fleet' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                   }`}
               >
-                Fleet Data
+                Fleet
               </button>
             </div>
           </div>
 
 
           {/* Bottom: System Logs */}
-          <div className="h-48 bg-slate-900/90 backdrop-blur border-t border-slate-700 flex flex-col">
+          <div className={`${isLogsPanelOpen ? 'h-48' : 'h-8'} bg-slate-900/90 backdrop-blur border-t border-slate-700 flex flex-col transition-all duration-300 z-10`}>
             <div className="px-4 py-2 border-b border-slate-800/50 flex justify-between items-center bg-slate-800/20">
               <div className="flex items-center gap-4">
                 <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                  <Terminal size={10} /> SYSTEM LOGS
+                  <Terminal size={10} /> LOGS
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -406,86 +488,116 @@ const App: React.FC = () => {
                     className="flex items-center gap-1 bg-emerald-600/80 hover:bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-medium transition-all"
                     title="Broadcast START"
                   >
-                    <Play size={12} /> Start All
+                    <Play size={12} /> <span className="hidden sm:inline">Start All</span>
                   </button>
                   <button
                     onClick={handleMissionStop}
                     className="flex items-center gap-1 bg-amber-600/80 hover:bg-amber-600 text-white px-2 py-1 rounded text-[10px] font-medium transition-all"
                     title="Broadcast STOP"
                   >
-                    <Square size={12} /> Stop All
+                    <Square size={12} /> <span className="hidden sm:inline">Stop All</span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button onClick={() => setLogs([])} className="text-[10px] text-slate-500 hover:text-white">CLEAR</button>
+                  <button
+                    onClick={() => setIsLogsPanelOpen(!isLogsPanelOpen)}
+                    className="text-slate-400 hover:text-white"
+                    title={isLogsPanelOpen ? "Minimize Logs" : "Maximize Logs"}
+                  >
+                    {isLogsPanelOpen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                   </button>
                 </div>
               </div>
-              <button onClick={() => setLogs([])} className="text-[10px] text-slate-500 hover:text-white">CLEAR</button>
             </div>
-            <div className="flex-1 overflow-y-auto p-3 font-mono text-[10px] space-y-1.5 custom-scrollbar">
-              {logs.length === 0 && <div className="text-center text-slate-600 italic py-2">System Ready</div>}
-              {logs.map(log => (
-                <div key={log.id} className="flex gap-2 opacity-90">
-                  <span className="text-slate-600 shrink-0">{log.timestamp.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                  <span className={`${log.level === 'ERROR' ? 'text-red-400' :
-                    log.level === 'WARNING' ? 'text-amber-400' :
-                      log.level === 'SUCCESS' ? 'text-emerald-400' : 'text-slate-300'
-                    }`}>
-                    {log.vehicleId && <span className="text-indigo-400 mr-1">[{log.vehicleId}]</span>}
-                    {log.message}
-                  </span>
-                </div>
-              ))}
-            </div>
+            {isLogsPanelOpen && (
+              <div className="flex-1 overflow-y-auto p-3 font-mono text-[10px] space-y-1.5 custom-scrollbar">
+                {logs.length === 0 && <div className="text-center text-slate-600 italic py-2">System Ready</div>}
+                {logs.map(log => (
+                  <div key={log.id} className="flex gap-2 opacity-90">
+                    <span className="text-slate-600 shrink-0">{log.timestamp.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                    <span className={`${log.level === 'ERROR' ? 'text-red-400' :
+                      log.level === 'WARNING' ? 'text-amber-400' :
+                        log.level === 'SUCCESS' ? 'text-emerald-400' : 'text-slate-300'
+                      }`}>
+                      {log.vehicleId && <span className="text-indigo-400 mr-1">[{log.vehicleId}]</span>}
+                      {log.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
         {/* Right: Dynamic Panel */}
-        {/* If Mode is DETAILS but no vehicle selected, show placeholder */}
-        {rightPanelMode !== 'SCOPE' && (
-          <aside className="w-80 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 z-10 transition-all duration-300">
-
-            {rightPanelMode === 'MANUAL' && selectedVehicle ? (
-              <ManualControlPanel
-                vehicleId={selectedVehicle.id}
-                onClose={() => setRightPanelMode('DETAILS')}
-              />
-            ) : rightPanelMode === 'PLATOON' ? (
-              <PlatoonControl
-                vehicles={vehicles}
-                onClose={() => setRightPanelMode('DETAILS')}
-              />
-            ) : (
-              // Default DETAILS View - Using VehicleControlPanel
-              <div className="flex flex-col h-full p-4">
-                {!selectedVehicle ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-2">
-                    <Radio size={32} />
-                    <p className="text-sm">Select a vehicle to view details</p>
-                  </div>
-                ) : (
-                  <VehicleControlPanel
-                    vehicle={selectedVehicle}
-                    onManualMode={() => setRightPanelMode('MANUAL')}
-                    onStatusChange={(id, status) => {
-                      if (status === VehicleStatus.ACTIVE) {
-                        bridgeService.startMission(id);
-                        addLog(`Sending START to ${id}`, 'SUCCESS');
-                      } else if (status === VehicleStatus.STOPPED) {
-                        bridgeService.stopMission(id);
-                        addLog(`Sending STOP to ${id}`, 'WARNING');
-                      } else if (status === VehicleStatus.EMERGENCY_STOP) {
-                        bridgeService.emergencyStop(id);
-                        addLog(`Sending E-STOP to ${id}`, 'ERROR');
-                      }
-                    }}
-                    onSpeedChange={(id, speed) => {
-                      bridgeService.setVelocity(speed, id);
-                      setVehicles(prev => prev.map(veh => veh.id === id ? { ...veh, targetSpeed: speed } : veh));
-                    }}
-                  />
-                )}
-              </div>
-            )}
-          </aside>
+        {/* Backdrop for Mobile Right Panel */}
+        {rightPanelMode !== 'CLOSED' && (
+          <div
+            className="md:hidden absolute inset-0 bg-black/50 z-20 backdrop-blur-sm"
+            onClick={() => setRightPanelMode('CLOSED')}
+          />
         )}
+
+        <aside className={`
+            absolute md:relative z-30 h-full
+            w-full md:w-80
+            bg-slate-900 border-l border-slate-800 
+            flex flex-col shrink-0 
+            transition-all duration-300 ease-in-out
+            ${rightPanelMode !== 'CLOSED' ? 'translate-x-0' : 'translate-x-full md:translate-x-0 md:!w-0 md:!border-0'}
+        `}>
+          {/* Mobile Close Button for Right Panel */}
+          <div className="md:hidden p-2 border-b border-slate-800 flex justify-end">
+            <button onClick={() => setRightPanelMode('CLOSED')} className="text-slate-400 hover:text-white flex items-center gap-1 text-sm">
+              Close <X size={16} />
+            </button>
+          </div>
+
+          {rightPanelMode === 'MANUAL' && selectedVehicle ? (
+            <ManualControlPanel
+              vehicleId={selectedVehicle.id}
+              onClose={() => setRightPanelMode('DETAILS')}
+            />
+          ) : rightPanelMode === 'PLATOON' ? (
+            <PlatoonControl
+              vehicles={vehicles}
+              onClose={() => setRightPanelMode('DETAILS')}
+            />
+          ) : (
+            // Default DETAILS View - Using VehicleControlPanel
+            <div className="flex flex-col h-full p-4 overflow-y-auto">
+              {!selectedVehicle ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-2">
+                  <Radio size={32} />
+                  <p className="text-sm">Select a vehicle to view details</p>
+                </div>
+              ) : (
+                <VehicleControlPanel
+                  vehicle={selectedVehicle}
+                  onManualMode={() => setRightPanelMode('MANUAL')}
+                  onStatusChange={(id, status) => {
+                    if (status === VehicleStatus.ACTIVE) {
+                      bridgeService.startMission(id);
+                      addLog(`Sending START to ${id}`, 'SUCCESS');
+                    } else if (status === VehicleStatus.STOPPED) {
+                      bridgeService.stopMission(id);
+                      addLog(`Sending STOP to ${id}`, 'WARNING');
+                    } else if (status === VehicleStatus.EMERGENCY_STOP) {
+                      bridgeService.emergencyStop(id);
+                      addLog(`Sending E-STOP to ${id}`, 'ERROR');
+                    }
+                  }}
+                  onSpeedChange={(id, speed) => {
+                    bridgeService.setVelocity(speed, id);
+                    setVehicles(prev => prev.map(veh => veh.id === id ? { ...veh, targetSpeed: speed } : veh));
+                  }}
+                />
+              )}
+            </div>
+          )}
+        </aside>
+
 
       </main>
     </div>

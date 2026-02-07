@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Joystick } from 'react-joystick-component';
+import { Joystick, JoystickShape } from 'react-joystick-component';
 import { IJoystickUpdateEvent } from 'react-joystick-component/build/lib/Joystick';
-import { Gamepad2, Keyboard, MoveVertical, MoveHorizontal } from 'lucide-react';
+import { Gamepad2, Keyboard, MoveVertical, MoveHorizontal, MousePointer2 } from 'lucide-react';
 import { bridgeService } from '../services/websocketBridgeService';
 
 interface ManualControlPanelProps {
@@ -11,7 +11,7 @@ interface ManualControlPanelProps {
 }
 
 const ManualControlPanel: React.FC<ManualControlPanelProps> = ({ vehicleId, onClose }) => {
-    const [mode, setMode] = useState<'keyboard' | 'joystick'>('joystick'); // Default to Joystick per request
+    const [mode, setMode] = useState<'keyboard' | 'joystick' | 'single-stick'>('joystick');
     const [throttle, setThrottle] = useState(0);
     const [steering, setSteering] = useState(0);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -21,7 +21,9 @@ const ManualControlPanel: React.FC<ManualControlPanelProps> = ({ vehicleId, onCl
 
     useEffect(() => {
         // Enable manual mode on mount
-        bridgeService.enableManualMode(vehicleId, mode);
+        // Map 'single-stick' to 'joystick' for Python compatibility as it processes raw values anyway
+        const pythonMode = mode === 'single-stick' ? 'joystick' : mode;
+        bridgeService.enableManualMode(vehicleId, pythonMode);
         console.log(`Manual mode enabled for ${vehicleId} (${mode})`);
 
         return () => {
@@ -34,8 +36,27 @@ const ManualControlPanel: React.FC<ManualControlPanelProps> = ({ vehicleId, onCl
 
     useEffect(() => {
         // Switch internal mode if updated
-        bridgeService.enableManualMode(vehicleId, mode);
+        const pythonMode = mode === 'single-stick' ? 'joystick' : mode;
+        bridgeService.enableManualMode(vehicleId, pythonMode);
     }, [mode, vehicleId]);
+
+    // -- Helper: Sensitivity Curve --
+    const applySensitivity = (val: number, isThrottle: boolean = false): number => {
+        // Simple quadratic curve for smoother control at low speeds
+        // val is -1 to 1
+        const sign = val < 0 ? -1 : 1;
+        const magnitude = Math.abs(val);
+
+        // Apply curve: output = sign * (input ^ 1.5) to dampen low values but keep range
+        // Or simpler: just scale throttle to be less aggressive max
+
+        if (isThrottle) {
+            // Cap max throttle at 0.4 for safer manual control unless at max Stick
+            // And use quadratic for smoothness
+            return sign * Math.pow(magnitude, 1.5) * 0.4;
+        }
+        return val;
+    };
 
     // -- Keyboard Logic --
     useEffect(() => {
@@ -56,19 +77,18 @@ const ManualControlPanel: React.FC<ManualControlPanelProps> = ({ vehicleId, onCl
             let targetThrottle = 0;
             let targetSteering = 0;
 
-            if (keysPressed.current['w'] || keysPressed.current['ArrowUp']) targetThrottle = 0.3;
-            if (keysPressed.current['s'] || keysPressed.current['ArrowDown']) targetThrottle = -0.3;
+            // Reduce keyboard aggressiveness (0.15 instead of 0.3)
+            if (keysPressed.current['w'] || keysPressed.current['ArrowUp']) targetThrottle = 0.15;
+            if (keysPressed.current['s'] || keysPressed.current['ArrowDown']) targetThrottle = -0.15;
             if (keysPressed.current['a'] || keysPressed.current['ArrowLeft']) targetSteering = 0.5;
             if (keysPressed.current['d'] || keysPressed.current['ArrowRight']) targetSteering = -0.5;
 
-            // Simple implementation: Instant update (can add ramping later)
             setThrottle(targetThrottle);
             setSteering(targetSteering);
 
             if (targetThrottle !== 0 || targetSteering !== 0) {
                 bridgeService.sendManualControl(targetThrottle, targetSteering, vehicleId);
             } else {
-                // Send zero command if established connection to ensure stop
                 bridgeService.sendManualControl(0, 0, vehicleId);
             }
         }, 50); // 20Hz
@@ -85,24 +105,40 @@ const ManualControlPanel: React.FC<ManualControlPanelProps> = ({ vehicleId, onCl
     const handleThrottleMove = (event: IJoystickUpdateEvent) => {
         if (mode !== 'joystick') return;
         const y = event.y ?? 0;
-        setThrottle(y);
-        bridgeService.sendManualControl(y, steering, vehicleId);
+        const filteredY = applySensitivity(y, true);
+        setThrottle(filteredY);
+        bridgeService.sendManualControl(filteredY, steering, vehicleId);
     };
 
     // Right Stick: Steering (X-axis only)
     const handleSteeringMove = (event: IJoystickUpdateEvent) => {
         if (mode !== 'joystick') return;
         const x = event.x ?? 0;
-        setSteering(x);
-        bridgeService.sendManualControl(throttle, x, vehicleId);
+        // Invert and scale to max 0.5
+        const steeringVal = -x * 0.5;
+        setSteering(steeringVal);
+        bridgeService.sendManualControl(throttle, steeringVal, vehicleId);
+    };
+
+    // -- Single Stick Logic --
+    const handleSingleStickMove = (event: IJoystickUpdateEvent) => {
+        if (mode !== 'single-stick') return;
+        const x = event.x ?? 0;
+        const y = event.y ?? 0;
+
+        const filteredY = applySensitivity(y, true);
+        // Invert and scale to max 0.5
+        const steeringVal = -x * 0.5;
+
+        setThrottle(filteredY);
+        setSteering(steeringVal);
+        bridgeService.sendManualControl(filteredY, steeringVal, vehicleId);
     };
 
     const handleStop = () => {
-        // If both released, we might set both to 0, but this fires individually.
-        // We rely on state. ideally we'd track active touch but simplistic approach:
-        // If this is called, we don't know which one stopped easily without more state logic or just setting that specific axis to 0
-        // But react-joystick-component `stop` event doesn't tell us which stick if we have two.
-        // So we create separate handlers.
+        setThrottle(0);
+        setSteering(0);
+        bridgeService.sendManualControl(0, 0, vehicleId);
     };
 
     const handleThrottleStop = () => {
@@ -135,14 +171,21 @@ const ManualControlPanel: React.FC<ManualControlPanelProps> = ({ vehicleId, onCl
                     className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-xs font-semibold
             ${mode === 'joystick' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
                 >
-                    <Gamepad2 size={14} /> Dual Stick
+                    <Gamepad2 size={14} /> Dual
+                </button>
+                <button
+                    onClick={() => setMode('single-stick')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-xs font-semibold
+            ${mode === 'single-stick' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                >
+                    <MousePointer2 size={14} /> Single
                 </button>
                 <button
                     onClick={() => setMode('keyboard')}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-xs font-semibold
             ${mode === 'keyboard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
                 >
-                    <Keyboard size={14} /> Keyboard
+                    <Keyboard size={14} /> Key
                 </button>
             </div>
 
@@ -159,7 +202,7 @@ const ManualControlPanel: React.FC<ManualControlPanelProps> = ({ vehicleId, onCl
                                 stickColor="#6366f1"
                                 move={handleThrottleMove}
                                 stop={handleThrottleStop}
-                                controlPlaneShape="axisY" // Limit to Y axis
+                                controlPlaneShape={JoystickShape.AxisY} // Limit to Y axis
                             />
                         </div>
 
@@ -172,10 +215,21 @@ const ManualControlPanel: React.FC<ManualControlPanelProps> = ({ vehicleId, onCl
                                 stickColor="#10b981"
                                 move={handleSteeringMove}
                                 stop={handleSteeringStop}
-                                controlPlaneShape="axisX" // Limit to X axis
+                                controlPlaneShape={JoystickShape.AxisX} // Limit to X axis
                             />
                         </div>
                     </>
+                ) : mode === 'single-stick' ? (
+                    <div className="flex flex-col items-center gap-2">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold flex items-center gap-1"><Gamepad2 size={10} /> All Axis</span>
+                        <Joystick
+                            size={120} // Larger stick for better control
+                            baseColor="#1e293b"
+                            stickColor="#f59e0b"
+                            move={handleSingleStickMove}
+                            stop={handleStop}
+                        />
+                    </div>
                 ) : (
                     <div className="text-center text-slate-500 text-xs">
                         Use WASD or Arrow Keys

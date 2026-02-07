@@ -143,6 +143,9 @@ export const TelemetryMap: React.FC<TelemetryMapProps> = ({
   const zoomIn = () => setZoomLevel(prev => Math.min(5, prev + 0.2));
   const zoomOut = () => setZoomLevel(prev => Math.max(0.5, prev - 0.2));
 
+  // Map display state
+  const [showPath, setShowPath] = useState(true);
+
   // Render the map
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -172,12 +175,17 @@ export const TelemetryMap: React.FC<TelemetryMapProps> = ({
       drawV2VConnections(ctx, width, height);
     }
 
+    // Draw Reference Paths (Layer below vehicles)
+    if (showPath) {
+      drawReferencePaths(ctx, width, height);
+    }
+
     // Draw vehicles
     drawVehicles(ctx, width, height);
 
     // Draw coordinate display
     drawCoordinateInfo(ctx, width, height);
-  }, [vehicles, selectedVehicleId, isV2VActive, panOffset, zoomLevel]);
+  }, [vehicles, selectedVehicleId, isV2VActive, panOffset, zoomLevel, showPath]);
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = '#334155';
@@ -219,6 +227,37 @@ export const TelemetryMap: React.FC<TelemetryMapProps> = ({
     ctx.fillStyle = '#94a3b8';
     ctx.font = '10px monospace';
     ctx.fillText('(0,0)', centerX + 6, centerY - 6);
+  };
+
+  const drawReferencePaths = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+    vehicles.forEach(vehicle => {
+      if (vehicle.telemetry.path_x && vehicle.telemetry.path_y) {
+        const pathX = vehicle.telemetry.path_x;
+        const pathY = vehicle.telemetry.path_y;
+
+        if (pathX.length < 2) return;
+
+        ctx.strokeStyle = '#64748b'; // Slate-500
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]); // Dashed line
+        ctx.globalAlpha = 0.6;
+
+        ctx.beginPath();
+
+        // Optimize: Only draw visible segments? For now, draw all.
+        for (let i = 0; i < pathX.length; i++) {
+          const pos = worldToScreen(pathX[i], pathY[i], width, height);
+          if (i === 0) ctx.moveTo(pos.x, pos.y);
+          else ctx.lineTo(pos.x, pos.y);
+        }
+
+        ctx.stroke();
+
+        // Reset styles
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+    });
   };
 
   const drawV2VConnections = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
@@ -369,6 +408,13 @@ export const TelemetryMap: React.FC<TelemetryMapProps> = ({
           title="Reset View"
         >
           <Maximize2 size={18} />
+        </button>
+        <button
+          onClick={() => setShowPath(!showPath)}
+          className={`p-2 rounded-lg shadow-lg transition-all border ${showPath ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800/90 border-slate-600 text-slate-400 hover:text-white'}`}
+          title="Toggle Reference Path"
+        >
+          <Navigation size={18} />
         </button>
       </div>
 
