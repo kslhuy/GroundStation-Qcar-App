@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Vehicle, VehicleStatus, LOCAL_OBSERVERS, FLEET_OBSERVERS, LONGITUDINAL_CONTROLLERS, LATERAL_CONTROLLERS, LocalObserverType, FleetObserverType, LongitudinalControllerType, LateralControllerType } from '../types';
+import { Vehicle, VehicleStatus, LOCAL_OBSERVERS, FLEET_OBSERVERS } from '../types';
 import { Eye, Route, MapPin, Settings2, Cpu, BarChart2, Play, Square, AlertOctagon, Gamepad2, Activity } from 'lucide-react';
 import { bridgeService } from '../services/websocketBridgeService';
 import { MAX_VELOCITY } from '../constants';
+import ControllerSettingsModal from './ControllerSettingsModal';
 
 interface VehicleControlPanelProps {
     vehicle: Vehicle;
@@ -17,11 +18,12 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
     onStatusChange,
     onSpeedChange
 }) => {
-    // Runtime Configuration - matching Python car_panel.py RuntimeSwitchingControl
-    const [localObserver, setLocalObserver] = useState<LocalObserverType>('ekf');
-    const [fleetObserver, setFleetObserver] = useState<FleetObserverType>('consensus');
-    const [longController, setLongController] = useState<LongitudinalControllerType>('cacc');
-    const [latController, setLatController] = useState<LateralControllerType>('pure_pursuit');
+    const [localObserver, setLocalObserver] = useState<string>('ekf');
+    const [fleetObserver, setFleetObserver] = useState<string>('consensus');
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+    const availableLocalObservers = vehicle.telemetry.config_data?.local_observers || LOCAL_OBSERVERS;
+    const availableFleetObservers = vehicle.telemetry.config_data?.fleet_observers || FLEET_OBSERVERS;
 
     // Path and Position controls
     const [pathNodes, setPathNodes] = useState('1,2,3,4');
@@ -37,14 +39,6 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
 
     const handleApplyFleetObserver = () => {
         bridgeService.setFleetObserver(fleetObserver, vehicle.id);
-    };
-
-    const handleApplyLongController = () => {
-        bridgeService.setController('longitudinal', longController, vehicle.id);
-    };
-
-    const handleApplyLatController = () => {
-        bridgeService.setController('lateral', latController, vehicle.id);
     };
 
     // Path and Position handlers
@@ -141,8 +135,39 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
 
             {/* Speed Control */}
             <div className="space-y-1">
-                <div className="flex justify-between text-xs text-slate-400">
+                <div className="flex justify-between items-center text-xs text-slate-400">
                     <span>Target Speed</span>
+                    <div className="flex items-center gap-2">
+                        <span className="bg-slate-800 px-2 py-1 rounded border border-slate-700 font-mono text-indigo-300">
+                            Gear: {vehicle.telemetry.gear?.replace('DRIVE_', '') || '1'}
+                        </span>
+                        <div className="flex gap-1">
+                            <button
+                                onClick={() => {
+                                    const currentGearStr = vehicle.telemetry.gear || 'DRIVE_1';
+                                    const currentGearNum = parseInt(currentGearStr.replace('DRIVE_', '')) || 1;
+                                    const newGearNum = Math.min(3, currentGearNum + 1);
+                                    bridgeService.setGear(`DRIVE_${newGearNum}`, vehicle.id);
+                                }}
+                                className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-0.5 rounded"
+                                title="Gear Up"
+                            >
+                                +
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const currentGearStr = vehicle.telemetry.gear || 'DRIVE_1';
+                                    const currentGearNum = parseInt(currentGearStr.replace('DRIVE_', '')) || 1;
+                                    const newGearNum = Math.max(1, currentGearNum - 1);
+                                    bridgeService.setGear(`DRIVE_${newGearNum}`, vehicle.id);
+                                }}
+                                className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-0.5 rounded"
+                                title="Gear Down"
+                            >
+                                -
+                            </button>
+                        </div>
+                    </div>
                     <span>{vehicle.targetSpeed.toFixed(1)} m/s</span>
                 </div>
                 <input
@@ -194,18 +219,18 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                 <button
                     onClick={handleTogglePerception}
                     className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-colors ${vehicle.telemetry.perception_active
-                            ? 'bg-green-600 hover:bg-green-700 text-white'
-                            : 'bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600'
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600'
                         }`}
                 >
                     <Eye size={14} /> {vehicle.telemetry.perception_active ? 'YOLO: ON' : 'Activate YOLO'}
                 </button>
             </div>
 
-            {/* Runtime Configuration - Matching Python car_panel.py */}
+            {/* Runtime Configuration - Observers Only */}
             <div className="space-y-3 pt-3 border-t border-slate-700">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                    <Settings2 size={12} /> Runtime Config
+                    <Settings2 size={12} /> Observers
                 </p>
 
                 {/* Local Observer */}
@@ -213,10 +238,10 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                     <span className="text-[10px] text-slate-500 w-16">Local Obs:</span>
                     <select
                         value={localObserver}
-                        onChange={(e) => setLocalObserver(e.target.value as LocalObserverType)}
+                        onChange={(e) => setLocalObserver(e.target.value)}
                         className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1"
                     >
-                        {LOCAL_OBSERVERS.map(o => <option key={o} value={o}>{o}</option>)}
+                        {availableLocalObservers.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
                     <button onClick={handleApplyLocalObserver} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-2 py-1 rounded">Apply</button>
                 </div>
@@ -226,40 +251,31 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                     <span className="text-[10px] text-slate-500 w-16">Fleet Obs:</span>
                     <select
                         value={fleetObserver}
-                        onChange={(e) => setFleetObserver(e.target.value as FleetObserverType)}
+                        onChange={(e) => setFleetObserver(e.target.value)}
                         className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1"
                     >
-                        {FLEET_OBSERVERS.map(o => <option key={o} value={o}>{o}</option>)}
+                        {availableFleetObservers.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
                     <button onClick={handleApplyFleetObserver} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-2 py-1 rounded">Apply</button>
                 </div>
-
-                {/* Longitudinal Controller */}
-                <div className="flex gap-2 items-center">
-                    <span className="text-[10px] text-slate-500 w-16">Long Ctrl:</span>
-                    <select
-                        value={longController}
-                        onChange={(e) => setLongController(e.target.value as LongitudinalControllerType)}
-                        className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1"
-                    >
-                        {LONGITUDINAL_CONTROLLERS.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <button onClick={handleApplyLongController} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-2 py-1 rounded">Apply</button>
-                </div>
-
-                {/* Lateral Controller */}
-                <div className="flex gap-2 items-center">
-                    <span className="text-[10px] text-slate-500 w-16">Lat Ctrl:</span>
-                    <select
-                        value={latController}
-                        onChange={(e) => setLatController(e.target.value as LateralControllerType)}
-                        className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1"
-                    >
-                        {LATERAL_CONTROLLERS.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <button onClick={handleApplyLatController} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-2 py-1 rounded">Apply</button>
-                </div>
             </div>
+
+            {/* Controller Settings Modal Trigger */}
+            <div className="pt-3 border-t border-slate-700">
+                <button
+                    onClick={() => setIsSettingsModalOpen(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
+                >
+                    <Settings2 size={18} className="text-indigo-400" />
+                    Controller Settings & Tuning
+                </button>
+            </div>
+
+            <ControllerSettingsModal
+                isOpen={isSettingsModalOpen}
+                onClose={() => setIsSettingsModalOpen(false)}
+                vehicle={vehicle}
+            />
 
         </div>
     );

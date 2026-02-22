@@ -17,13 +17,15 @@ export enum VehicleStatus {
 // Runtime Configuration - matching Python car_panel.py RuntimeSwitchingControl
 export const LOCAL_OBSERVERS = ['ekf', 'luenberger', 'neural_luenberger'] as const;
 export const FLEET_OBSERVERS = ['consensus', 'distributed_luenberger', 'trust_consensus', 'trust_kalman'] as const;
-export const LONGITUDINAL_CONTROLLERS = ['cacc', 'pid', 'hybrid'] as const;
-export const LATERAL_CONTROLLERS = ['pure_pursuit', 'stanley', 'lookahead', 'hybrid', 'fusion', 'path'] as const;
+export const PATH_LONGITUDINAL_CONTROLLERS = ['pid', 'cacc', 'sa_acc'] as const;
+export const PATH_LATERAL_CONTROLLERS = ['pp_map', 'path', 'stanley'] as const;
+export const LEADER_LONGITUDINAL_CONTROLLERS = ['cacc', 'pid', 'sa_acc'] as const;
+export const LEADER_LATERAL_CONTROLLERS = ['pure_pursuit', 'stanley', 'lookahead', 'hybrid', 'fusion'] as const;
 
 export type LocalObserverType = typeof LOCAL_OBSERVERS[number];
 export type FleetObserverType = typeof FLEET_OBSERVERS[number];
-export type LongitudinalControllerType = typeof LONGITUDINAL_CONTROLLERS[number];
-export type LateralControllerType = typeof LATERAL_CONTROLLERS[number];
+export type LongitudinalControllerType = string;
+export type LateralControllerType = string;
 
 // Telemetry Data - matches Python vehicle_logic telemetry
 export interface TelemetryData {
@@ -54,8 +56,11 @@ export interface TelemetryData {
   // Observer and Controller types (from periodic broadcast)
   local_observer_type?: string;
   fleet_observer_type?: string;
-  longitudinal_ctrl_type?: string;
-  lateral_ctrl_type?: string;
+  path_long_ctrl?: string;
+  path_lat_ctrl?: string;
+  leader_long_ctrl?: string;
+  leader_lat_ctrl?: string;
+  gear?: string;
 
   // Perception (from periodic broadcast)
   perception_active?: boolean;
@@ -64,6 +69,18 @@ export interface TelemetryData {
   // Reference Path (from node_sequence generation)
   path_x?: number[];
   path_y?: number[];
+
+  // Dynamic config received from vehicle
+  config_data?: {
+    local_observers?: string[];
+    fleet_observers?: string[];
+    path_longitudinal_controllers?: string[];
+    path_lateral_controllers?: string[];
+    leader_longitudinal_controllers?: string[];
+    leader_lateral_controllers?: string[];
+    controller_params?: Record<string, Record<string, any>>;
+    observer_params?: Record<string, Record<string, any>>;
+  };
 }
 
 // Vehicle Configuration

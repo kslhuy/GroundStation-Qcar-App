@@ -145,6 +145,10 @@ const App: React.FC = () => {
             ...(msg.perception_active !== undefined && { perception_active: msg.perception_active }),
             ...(msg.scopes_active !== undefined && { scopes_active: msg.scopes_active }),
 
+            // Gear (from operational_status in periodic broadcast or direct)
+            ...(msg.operational_status?.gear !== undefined && { gear: msg.operational_status.gear }),
+            ...(msg.gear !== undefined && { gear: msg.gear }),
+
             // Reference Path
             ...(msg.path_x !== undefined && { path_x: msg.path_x }),
             ...(msg.path_y !== undefined && { path_y: msg.path_y }),

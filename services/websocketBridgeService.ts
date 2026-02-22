@@ -60,8 +60,11 @@ export interface TelemetryMessage extends BridgeMessage {
     // Observer and Controller types
     local_observer_type?: string;
     fleet_observer_type?: string;
-    longitudinal_ctrl_type?: string;
-    lateral_ctrl_type?: string;
+    path_long_ctrl?: string;
+    path_lat_ctrl?: string;
+    leader_long_ctrl?: string;
+    leader_lat_ctrl?: string;
+    gear?: string;
 
     // Perception status
     perception_active?: boolean;
@@ -77,6 +80,10 @@ export interface TelemetryMessage extends BridgeMessage {
         connected_peers?: number;
         fleet_size?: number;
     };
+
+    operational_status?: {
+        gear?: string;
+    };
 }
 
 
@@ -86,6 +93,18 @@ export interface VehicleStatusMessage extends BridgeMessage {
     status: 'connected' | 'disconnected';
     ip?: string;
     port?: number;
+}
+
+export interface ConfigDataMessage extends BridgeMessage {
+    type: 'config_data';
+    local_observers?: string[];
+    fleet_observers?: string[];
+    path_longitudinal_controllers?: string[];
+    path_lateral_controllers?: string[];
+    leader_longitudinal_controllers?: string[];
+    leader_lateral_controllers?: string[];
+    controller_params?: Record<string, Record<string, any>>;
+    observer_params?: Record<string, Record<string, any>>;
 }
 
 export interface CommandMessage {
@@ -379,12 +398,38 @@ class WebSocketBridgeService {
     }
 
     /**
-     * Set controller type (longitudinal or lateral)
+     * Set controller type (longitudinal or lateral) for a specific context (path or leader)
      */
-    setController(category: 'longitudinal' | 'lateral', controllerType: string, target: string | 'all' = 'all'): boolean {
+    setController(category: 'longitudinal' | 'lateral', controllerType: string, stateContext: string, target: string | 'all' = 'all'): boolean {
+        // Python expects: {"type": "set_controller", "category": category, "controller_type": controllerType, "state_context": stateContext}
         return this.sendCommand('set_controller', target, {
             category,
-            controller_type: controllerType
+            controller_type: controllerType,
+            state_context: stateContext
+        });
+    }
+
+    /**
+     * Set parameters for a specific controller type.
+     */
+    setControllerParams(category: 'longitudinal' | 'lateral', params: Record<string, any>, stateContext: string, target: string | 'all' = 'all'): boolean {
+        // Python equivalent: {"type": "set_params", "category": category, "state_context": stateContext, "params": params}
+        return this.sendCommand('set_params', target, {
+            category,
+            state_context: stateContext,
+            params
+        });
+    }
+
+    /**
+     * Set gear level for a vehicle
+     */
+    setGear(gear: string | number, target: string | 'all' = 'all'): boolean {
+        // Python expects: {"type": "set_gear", "gear": gear}
+        // Gear can be numbers (1, 2, 3) or strings ('DRIVE_1', 'REVERSE', etc)
+        // Python's vehicle_logic handles the parsing
+        return this.sendCommand('set_gear', target, {
+            gear
         });
     }
 
@@ -470,6 +515,13 @@ class WebSocketBridgeService {
      */
     onVehicleStatus(handler: (msg: VehicleStatusMessage) => void): () => void {
         return this.on('vehicle_status', handler as BridgeEventHandler);
+    }
+
+    /**
+     * Subscribe to config data updates
+     */
+    onConfigData(handler: (msg: ConfigDataMessage) => void): () => void {
+        return this.on('config_data', handler as BridgeEventHandler);
     }
 
     // --- Private methods ---
