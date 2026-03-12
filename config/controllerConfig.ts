@@ -16,6 +16,8 @@ export const CACC_PARAMS: ParamDef[] = [
     { key: 'K_velocity', label: 'K Velocity', type: 'float', defaultValue: 0.05, min: 0, max: 1, step: 0.01, description: 'Velocity error gain' },
     { key: 'acc_to_throttle_gain', label: 'Acc->Throttle', type: 'float', defaultValue: 0.65, min: 0, max: 2, step: 0.05, description: 'Conversion gain from acceleration to throttle' },
     { key: 'max_throttle', label: 'Max Throttle', type: 'float', defaultValue: 0.25, min: 0, max: 1, step: 0.01, description: 'Maximum throttle output' },
+    { key: 'leader_acceleration_weight', label: 'Leader Accel Weight', type: 'float', defaultValue: 0.0, min: 0, max: 5, step: 0.1, description: 'Weight on leader-vs-follower accel diff added to velocity error' },
+    { key: 'leader_acceleration_gain', label: 'Leader Accel Gain', type: 'float', defaultValue: 0.0, min: 0, max: 5, step: 0.1, description: 'alias (deprecated) for weight' },
     { key: 'alpha_filter', label: 'Alpha Filter', type: 'float', defaultValue: 0.3, min: 0, max: 1, step: 0.05, description: 'Low-pass filter coefficient (0-1)' },
     { key: 'ki_velocity', label: 'Ki Velocity', type: 'float', defaultValue: 0.1, min: 0, max: 1, step: 0.05, description: 'Velocity integral gain' },
     { key: 'blend_heading_deg', label: 'Blend Heading', type: 'float', defaultValue: 20.0, min: 0, max: 90, step: 1.0, description: 'Used for blended spacing mode' }
@@ -74,6 +76,22 @@ export const STANLEY_PARAMS: ParamDef[] = [
     { key: 'max_steering', label: 'Max Steering', type: 'float', defaultValue: 0.5, min: 0.1, max: 1.0, step: 0.05 }
 ];
 
+export const MPC_PARAMS: ParamDef[] = [
+    { key: 'horizon', label: 'Horizon', type: 'int', defaultValue: 10, min: 1, max: 50, step: 1, description: 'Number of prediction steps' },
+    { key: 'dt_mpc', label: 'dt MPC (s)', type: 'float', defaultValue: 0.05, min: 0.001, max: 0.2, step: 0.005 },
+    { key: 'Q_pos', label: 'Q Position', type: 'float', defaultValue: 500.0, min: 0, max: 1000, step: 10 },
+    { key: 'Q_heading', label: 'Q Heading', type: 'float', defaultValue: 300.0, min: 0, max: 1000, step: 10 },
+    { key: 'Q_vel', label: 'Q Velocity', type: 'float', defaultValue: 10.0, min: 0, max: 100, step: 1 },
+    { key: 'R_delta', label: 'R Steering', type: 'float', defaultValue: 1.0, min: 0, max: 100, step: 1 },
+    { key: 'R_acc', label: 'R Accel', type: 'float', defaultValue: 1.0, min: 0, max: 100, step: 1 },
+    { key: 'R_delta_rate', label: 'R Steering Rate', type: 'float', defaultValue: 3.0, min: 0, max: 100, step: 1 },
+    { key: 'R_acc_rate', label: 'R Accel Rate', type: 'float', defaultValue: 3.0, min: 0, max: 100, step: 1 },
+    { key: 'max_steering_rate', label: 'Max Steering Rate', type: 'float', defaultValue: 3.0, min: 0, max: 10, step: 0.1 },
+    { key: 'path_lookahead_scale', label: 'Lookahead Scale', type: 'float', defaultValue: 0.4, min: 0, max: 1, step: 0.05 },
+    { key: 'desired_spacing', label: 'Desired Spacing', type: 'float', defaultValue: 0.5, min: 0, max: 5, step: 0.1 },
+    { key: 'time_headway', label: 'Time Headway', type: 'float', defaultValue: 0.5, min: 0, max: 2, step: 0.05 },
+];
+
 export const CONTROLLER_SCHEMAS: Record<string, ParamDef[]> = {
     'cacc': CACC_PARAMS,
     'pid': PID_PARAMS,
@@ -81,6 +99,7 @@ export const CONTROLLER_SCHEMAS: Record<string, ParamDef[]> = {
     'pure_pursuit': PURE_PURSUIT_PARAMS,
     'pp_map': PP_MAP_PARAMS,
     'stanley': STANLEY_PARAMS,
+    'mpc': MPC_PARAMS,
 };
 
 /**

@@ -18,9 +18,9 @@ export enum VehicleStatus {
 export const LOCAL_OBSERVERS = ['ekf', 'luenberger', 'neural_luenberger'] as const;
 export const FLEET_OBSERVERS = ['consensus', 'distributed_luenberger', 'trust_consensus', 'trust_kalman'] as const;
 export const PATH_LONGITUDINAL_CONTROLLERS = ['pid', 'cacc', 'sa_acc'] as const;
-export const PATH_LATERAL_CONTROLLERS = ['pp_map', 'path', 'stanley'] as const;
+export const PATH_LATERAL_CONTROLLERS = ['pp_map', 'path', 'stanley', 'mpc'] as const;
 export const LEADER_LONGITUDINAL_CONTROLLERS = ['cacc', 'pid', 'sa_acc'] as const;
-export const LEADER_LATERAL_CONTROLLERS = ['pure_pursuit', 'stanley', 'lookahead', 'hybrid', 'fusion'] as const;
+export const LEADER_LATERAL_CONTROLLERS = ['pure_pursuit', 'stanley', 'lookahead', 'hybrid', 'fusion', 'mpc'] as const;
 
 export type LocalObserverType = typeof LOCAL_OBSERVERS[number];
 export type FleetObserverType = typeof FLEET_OBSERVERS[number];
