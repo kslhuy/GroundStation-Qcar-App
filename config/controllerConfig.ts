@@ -17,7 +17,7 @@ export const CACC_PARAMS: ParamDef[] = [
     { key: 'acc_to_throttle_gain', label: 'Acc->Throttle', type: 'float', defaultValue: 0.65, min: 0, max: 2, step: 0.05, description: 'Conversion gain from acceleration to throttle' },
     { key: 'max_throttle', label: 'Max Throttle', type: 'float', defaultValue: 0.25, min: 0, max: 1, step: 0.01, description: 'Maximum throttle output' },
     { key: 'leader_acceleration_weight', label: 'Leader Accel Weight', type: 'float', defaultValue: 0.0, min: 0, max: 5, step: 0.1, description: 'Weight on leader-vs-follower accel diff added to velocity error' },
-    { key: 'leader_acceleration_gain', label: 'Leader Accel Gain', type: 'float', defaultValue: 0.0, min: 0, max: 5, step: 0.1, description: 'alias (deprecated) for weight' },
+    // { key: 'leader_acceleration_gain', label: 'Leader Accel Gain', type: 'float', defaultValue: 0.0, min: 0, max: 5, step: 0.1, description: 'alias (deprecated) for weight' },
     { key: 'alpha_filter', label: 'Alpha Filter', type: 'float', defaultValue: 0.3, min: 0, max: 1, step: 0.05, description: 'Low-pass filter coefficient (0-1)' },
     { key: 'ki_velocity', label: 'Ki Velocity', type: 'float', defaultValue: 0.1, min: 0, max: 1, step: 0.05, description: 'Velocity integral gain' },
     { key: 'blend_heading_deg', label: 'Blend Heading', type: 'float', defaultValue: 20.0, min: 0, max: 90, step: 1.0, description: 'Used for blended spacing mode' }

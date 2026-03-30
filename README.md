@@ -236,7 +236,7 @@ The interface shows real-time:
 1. SSH into the QCar
 2. Start the vehicle control software:
    ```bash
-   cd /home/nvidia/Documents/multi_vehicle_RealCar
+   cd /home/nvidia/Documents/qcar2/Development/ros2/src/ros2test/ros2test/multi_vehicle_RealCar
    python vehicle_main.py --car-id 0
    ```
 
