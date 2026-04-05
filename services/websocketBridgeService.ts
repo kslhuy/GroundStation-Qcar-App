@@ -107,6 +107,15 @@ export interface ConfigDataMessage extends BridgeMessage {
     observer_params?: Record<string, Record<string, any>>;
 }
 
+export interface GlobalStatusMessage extends BridgeMessage {
+    type: 'global_status';
+    v2v_activating?: boolean;
+    v2v_network_established?: boolean;
+    platoon_setup_complete?: boolean;
+    platoon_leader_id?: number | string;
+    platoon_formation?: Record<string, number>;
+}
+
 export interface CommandMessage {
     type: 'command';
     target: string | 'all';
@@ -309,6 +318,23 @@ class WebSocketBridgeService {
     setPerception(enabled: boolean, target: string | 'all' = 'all'): boolean {
         const type = enabled ? 'activate_perception' : 'disable_perception';
         return this.sendCommand(type, target);
+    }
+
+    /**
+     * V2V Attack Control
+     */
+    triggerAttack(target: string | 'all', attackType: string, caseNum: number, attackerId: number, victimIds: number[], dataType: string = 'local'): boolean {
+        return this.sendCommand('trigger_attack', target, {
+            attack_type: attackType,
+            case_num: caseNum,
+            attacker_id: attackerId,
+            victim_ids: victimIds,
+            data_type: dataType
+        });
+    }
+
+    disableAttack(target: string | 'all'): boolean {
+        return this.sendCommand('disable_attack', target);
     }
 
     /**
@@ -522,6 +548,13 @@ class WebSocketBridgeService {
      */
     onConfigData(handler: (msg: ConfigDataMessage) => void): () => void {
         return this.on('config_data', handler as BridgeEventHandler);
+    }
+
+    /**
+     * Subscribe to global status updates (V2V, Platoon, etc.)
+     */
+    onGlobalStatus(handler: (msg: GlobalStatusMessage) => void): () => void {
+        return this.on('global_status', handler as BridgeEventHandler);
     }
 
     // --- Private methods ---

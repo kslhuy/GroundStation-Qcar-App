@@ -6,10 +6,12 @@ import { Vehicle } from '../types';
 
 interface PlatoonControlProps {
     vehicles: Vehicle[];
+    globalSetupComplete?: boolean;
+    globalLeaderId?: string;
     onClose: () => void;
 }
 
-const PlatoonControl: React.FC<PlatoonControlProps> = ({ vehicles, onClose }) => {
+const PlatoonControl: React.FC<PlatoonControlProps> = ({ vehicles, globalSetupComplete, globalLeaderId, onClose }) => {
     const [leaderId, setLeaderId] = useState<string>('');
     const [followers, setFollowers] = useState<string[]>([]);
     const [gap, setGap] = useState<number>(1.0);
@@ -22,6 +24,19 @@ const PlatoonControl: React.FC<PlatoonControlProps> = ({ vehicles, onClose }) =>
             prev.includes(id) ? prev.filter(fid => fid !== id) : [...prev, id]
         );
     };
+
+    React.useEffect(() => {
+        if (globalSetupComplete) {
+            setStatus('ready');
+            if (globalLeaderId) {
+                // globalLeaderId from Python is likely just the number (e.g. 1)
+                // In React, vehicle IDs are like "qcar-1"
+                setLeaderId(`qcar-${globalLeaderId}`);
+            }
+        } else {
+            setStatus('idle');
+        }
+    }, [globalSetupComplete, globalLeaderId]);
 
     const handleSetup = async () => {
         if (!leaderId || followers.length === 0) return;

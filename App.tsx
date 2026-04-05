@@ -18,7 +18,8 @@ import {
   PanelBottomClose,
   PanelBottomOpen,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Skull
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -28,13 +29,14 @@ import { REFRESH_RATE_MS } from './constants';
 import { updateVehiclePhysics } from './services/mockVehicleService';
 import { VehicleCard } from './components/VehicleCard';
 import { TelemetryMap } from './components/TelemetryMap';
-import { bridgeService, ConnectionStatus, TelemetryMessage, VehicleStatusMessage } from './services/websocketBridgeService';
+import { bridgeService, ConnectionStatus, TelemetryMessage, VehicleStatusMessage, GlobalStatusMessage } from './services/websocketBridgeService';
 
 // New Components
 import ManualControlPanel from './components/ManualControlPanel';
 import PlatoonControl from './components/PlatoonControl';
 import { RealTimeDataPlot } from './components/RealTimeDataPlot';
 import VehicleControlPanel from './components/VehicleControlPanel';
+import AttackControlPanel from './components/AttackControlPanel';
 
 const App: React.FC = () => {
   // -- State --
@@ -42,11 +44,18 @@ const App: React.FC = () => {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [globalEStop, setGlobalEStop] = useState(false);
-  const [v2vActive, setV2VActive] = useState(false);
+  const [v2vActive, setV2VActive] = useState(false); // Used primarily for map visualization 
   const [bridgeStatus, setBridgeStatus] = useState<ConnectionStatus>('disconnected');
 
+  // GS Global Sync State
+  const [v2vActivating, setV2vActivating] = useState(false);
+  const [v2vNetworkEstablished, setV2vNetworkEstablished] = useState(false);
+  const [platoonSetupComplete, setPlatoonSetupComplete] = useState(false);
+  const [platoonLeaderId, setPlatoonLeaderId] = useState<string | number | undefined>(undefined);
+  const [platoonFormation, setPlatoonFormation] = useState<Record<string, number>>({});
+
   // UI State
-  const [rightPanelMode, setRightPanelMode] = useState<'DETAILS' | 'MANUAL' | 'PLATOON' | 'SCOPE' | 'CLOSED'>('CLOSED');
+  const [rightPanelMode, setRightPanelMode] = useState<'DETAILS' | 'MANUAL' | 'PLATOON' | 'SCOPE' | 'ATTACK' | 'CLOSED'>('CLOSED');
   const [viewMode, setViewMode] = useState<'map' | 'local' | 'fleet'>('map'); // Map/Data toggle
   const [isFleetSidebarOpen, setIsFleetSidebarOpen] = useState(window.innerWidth >= 768);
   const [isLogsPanelOpen, setIsLogsPanelOpen] = useState(true);
@@ -211,10 +220,23 @@ const App: React.FC = () => {
       });
     });
 
+    // Global Status
+    const unsubGlobalStatus = bridgeService.onGlobalStatus((msg: GlobalStatusMessage) => {
+        if (msg.v2v_activating !== undefined) setV2vActivating(msg.v2v_activating);
+        if (msg.v2v_network_established !== undefined) {
+            setV2vNetworkEstablished(msg.v2v_network_established);
+            setV2VActive(msg.v2v_network_established); // Align local state for map
+        }
+        if (msg.platoon_setup_complete !== undefined) setPlatoonSetupComplete(msg.platoon_setup_complete);
+        if (msg.platoon_leader_id !== undefined) setPlatoonLeaderId(msg.platoon_leader_id);
+        if (msg.platoon_formation !== undefined) setPlatoonFormation(msg.platoon_formation);
+    });
+
     return () => {
       unsubStatus();
       unsubTelemetry();
       unsubVehicleStatus();
+      unsubGlobalStatus();
     };
   }, [addLog]);
 
@@ -259,10 +281,10 @@ const App: React.FC = () => {
   };
 
   const toggleV2V = () => {
-    const newState = !v2vActive;
-    setV2VActive(newState);
-    bridgeService.setV2V(newState, 'all');
-    addLog(`V2V Network ${newState ? 'Enabled' : 'Disabled'}`, 'INFO');
+    // If it's established or activating, user probably wants to turn it off. Otherwise, turn on.
+    const isCurrentlyActiveOrActivating = v2vNetworkEstablished || v2vActivating;
+    bridgeService.setV2V(!isCurrentlyActiveOrActivating, 'all');
+    addLog(`Requested V2V Network ${!isCurrentlyActiveOrActivating ? 'Establishment' : 'Termination'}`, 'INFO');
   };
 
   const handleMissionStart = () => {
@@ -333,7 +355,7 @@ const App: React.FC = () => {
 
           <button
             onClick={toggleV2V}
-            className={`p-2 rounded-lg transition-all ${v2vActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+            className={`p-2 rounded-lg transition-all ${v2vNetworkEstablished ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : v2vActivating ? 'bg-orange-500 text-white animate-pulse' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
             title="Toggle V2V Network"
           >
             <Network size={18} />
@@ -380,11 +402,27 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
-            {vehicles.map(v => (
+            {vehicles.map(v => {
+              // Extract raw car id number from "qcar-X" or just pass ID
+              const numericIdMatch = v.id.match(/\d+/);
+              const numericId = numericIdMatch ? numericIdMatch[0] : null;
+              
+              // Find global platoon role
+              let globalPlatoonPosition = null;
+              let isGlobalLeader = false;
+              
+              if (platoonSetupComplete && numericId && platoonFormation[numericId]) {
+                 globalPlatoonPosition = platoonFormation[numericId];
+                 isGlobalLeader = (globalPlatoonPosition === 1);
+              }
+              
+              return (
               <VehicleCard
                 key={v.id}
                 vehicle={v}
                 isSelected={v.id === selectedVehicleId}
+                globalPlatoonPosition={globalPlatoonPosition}
+                isGlobalLeader={isGlobalLeader}
                 onSelect={() => {
                   setSelectedVehicleId(v.id);
                   setRightPanelMode('DETAILS');
@@ -392,7 +430,7 @@ const App: React.FC = () => {
                 }}
                 onNameChange={handleVehicleNameChange}
               />
-            ))}
+            )})}
           </div>
 
           {/* Quick Actions Footer */}
@@ -402,10 +440,10 @@ const App: React.FC = () => {
                 bridgeService.setupPlatoon();
                 addLog("Requested Platoon Setup", "INFO");
               }}
-              className="bg-slate-800 hover:bg-slate-700 text-xs text-indigo-300 py-2 rounded border border-slate-700 flex items-center justify-center gap-2"
+              className={`${platoonSetupComplete ? 'bg-indigo-600/50 text-indigo-200 border-indigo-500/50' : 'bg-slate-800 hover:bg-slate-700 text-indigo-300 border-slate-700'} text-xs py-2 rounded flex items-center justify-center gap-2`}
               title="Use Python GS logic to setup platoon from current config"
             >
-              <Link2 size={14} /> Setup Platoon
+              <Link2 size={14} /> {platoonSetupComplete ? 'Platoon Setup' : 'Setup Platoon'}
             </button>
 
             <button
@@ -421,6 +459,9 @@ const App: React.FC = () => {
 
             <button onClick={() => setRightPanelMode('PLATOON')} className="col-span-2 bg-slate-800 hover:bg-slate-700 text-xs text-slate-400 py-1 rounded border border-slate-700 flex items-center justify-center gap-2">
               Configure Details
+            </button>
+            <button onClick={() => setRightPanelMode('ATTACK')} className="col-span-2 bg-red-900/30 hover:bg-red-900/50 text-xs text-red-400 py-2 rounded border border-red-900/50 flex items-center justify-center gap-2 font-bold focus:outline-none focus:ring-1 focus:ring-red-500 transition-colors">
+              <Skull size={14} className="text-red-500" /> V2V ATTACKS
             </button>
           </div>
         </aside>
@@ -566,8 +607,17 @@ const App: React.FC = () => {
           ) : rightPanelMode === 'PLATOON' ? (
             <PlatoonControl
               vehicles={vehicles}
+              globalSetupComplete={platoonSetupComplete}
+              globalLeaderId={platoonLeaderId?.toString()}
               onClose={() => setRightPanelMode('DETAILS')}
             />
+          ) : rightPanelMode === 'ATTACK' ? (
+            <div className="flex-1 overflow-y-auto">
+              <AttackControlPanel
+                vehicles={vehicles}
+                onClose={() => setRightPanelMode('CLOSED')}
+              />
+            </div>
           ) : (
             // Default DETAILS View - Using VehicleControlPanel
             <div className="flex flex-col h-full p-4 overflow-y-auto">

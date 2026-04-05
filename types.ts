@@ -33,6 +33,7 @@ export interface TelemetryData {
   y: number;
   theta: number;
   velocity: number;
+  acceleration?: number;
   battery: number;
   steering: number;
   throttle: number;
@@ -41,6 +42,7 @@ export interface TelemetryData {
   // Additional telemetry fields from Python
   gps_valid?: boolean;
   state?: string;  // State machine state name - displayed directly from Python
+  fleet_estimation?: Record<string, number>; // True fleet state outputs
 
   // V2V Status (from periodic broadcast)
   v2v_active?: boolean;

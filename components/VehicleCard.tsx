@@ -5,6 +5,8 @@ import { Battery, Wifi, WifiOff, Activity, Edit2, Check } from 'lucide-react';
 interface VehicleCardProps {
   vehicle: Vehicle;
   isSelected: boolean;
+  globalPlatoonPosition?: number | null;
+  isGlobalLeader?: boolean;
   onSelect: () => void;
   onNameChange?: (id: string, name: string) => void;
 }
@@ -12,6 +14,8 @@ interface VehicleCardProps {
 export const VehicleCard: React.FC<VehicleCardProps> = ({
   vehicle,
   isSelected,
+  globalPlatoonPosition,
+  isGlobalLeader,
   onSelect,
   onNameChange,
 }) => {
@@ -86,9 +90,17 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
         {isOnline ? <Wifi size={14} className="text-green-500" /> : <WifiOff size={14} className="text-slate-500" />}
       </div>
 
-      {/* State from Python */}
-      <div className={`text-xs font-mono font-semibold mb-2 ${getStateColor(vehicle.telemetry.state)}`}>
-        {isOnline ? (vehicle.telemetry.state || 'UNKNOWN') : 'OFFLINE'}
+      {/* State from Python and Platoon Status */}
+      <div className="flex justify-between items-start mb-2">
+        <div className={`text-xs font-mono font-semibold ${getStateColor(vehicle.telemetry.state)}`}>
+          {isOnline ? (vehicle.telemetry.state || 'UNKNOWN') : 'OFFLINE'}
+        </div>
+        
+        {isOnline && (vehicle.telemetry.platoon_enabled || globalPlatoonPosition) && (
+          <div className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap ${(vehicle.telemetry.platoon_is_leader ?? isGlobalLeader) ? 'bg-amber-900/50 text-amber-400 border border-amber-500/30' : 'bg-blue-900/50 text-blue-400 border border-blue-500/30'}`}>
+            {(vehicle.telemetry.platoon_is_leader ?? isGlobalLeader) ? 'LEADER' : `FOLLOWER-${vehicle.telemetry.platoon_position ?? globalPlatoonPosition}`}
+          </div>
+        )}
       </div>
 
       {/* Quick Stats */}

@@ -15,6 +15,7 @@ interface DataPoint {
 
 interface PlotData {
     velocity: DataPoint[];
+    acceleration: DataPoint[];
     throttle: DataPoint[];
     steering: DataPoint[];
     x: DataPoint[];
@@ -32,9 +33,15 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
     const maxDataPoints = 1000; // 20 seconds at 50Hz (Safety margin over 15s window)
     const timeWindow = 15; // seconds to display
 
+    useEffect(() => {
+        setFleetData(new Map());
+        setLocalData(new Map());
+    }, [selectedVehicleId, mode]);
+
     // Helper to create empty PlotData
     const createEmptyPlotData = (): PlotData => ({
         velocity: [],
+        acceleration: [],
         throttle: [],
         steering: [],
         x: [],
@@ -54,15 +61,18 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
                     // Add new data points
                     vehicleData.velocity.push({ time: now, value: vehicle.telemetry.velocity });
+                    vehicleData.acceleration.push({ time: now, value: vehicle.telemetry.acceleration ?? 0 });
                     vehicleData.throttle.push({ time: now, value: vehicle.telemetry.throttle });
                     vehicleData.steering.push({ time: now, value: vehicle.telemetry.steering });
                     vehicleData.x.push({ time: now, value: vehicle.telemetry.x });
                     vehicleData.y.push({ time: now, value: vehicle.telemetry.y });
 
-                    // Trim old data
+                    // Trim old data immutably and avoid slow O(N) shift
                     Object.keys(vehicleData).forEach(key => {
                         const arr = vehicleData[key as keyof PlotData];
-                        while (arr.length > maxDataPoints) arr.shift();
+                        if (arr.length > maxDataPoints) {
+                            (vehicleData as any)[key] = arr.slice(arr.length - maxDataPoints);
+                        }
                     });
 
                     newData.set(vehicle.id, vehicleData);
@@ -72,22 +82,74 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         } else if (mode === 'fleet') {
             setFleetData(prev => {
                 const newData = new Map<string, PlotData>(prev);
-                vehicles.forEach(vehicle => {
-                    const vehicleData: PlotData = newData.get(vehicle.id) ?? createEmptyPlotData();
+                
+                // Target the selected vehicle to view the fleet from its perspective.
+                // If none selected, default to the first available vehicle.
+                const observerVehicle = selectedVehicleId 
+                    ? vehicles.find(v => v.id === selectedVehicleId) 
+                    : vehicles[0];
 
-                    vehicleData.velocity.push({ time: now, value: vehicle.telemetry.velocity });
-                    vehicleData.throttle.push({ time: now, value: vehicle.telemetry.throttle });
-                    vehicleData.steering.push({ time: now, value: vehicle.telemetry.steering });
-                    vehicleData.x.push({ time: now, value: vehicle.telemetry.x });
-                    vehicleData.y.push({ time: now, value: vehicle.telemetry.y });
+                if (!observerVehicle) return newData;
 
-                    Object.keys(vehicleData).forEach(key => {
-                        const arr = vehicleData[key as keyof PlotData];
-                        while (arr.length > maxDataPoints) arr.shift();
+                const fleetEst = (observerVehicle.telemetry as any).fleet_estimation;
+
+                if (fleetEst) {
+                    // We iterate up to a reasonable max fleet size or dynamic
+                    for (let i = 0; i < 10; i++) {
+                        const hasX = `fleet_x_${i}` in fleetEst;
+                        if (!hasX) continue; // skip if car i doesn't exist in estimation
+
+                        // Use a specific ID like "observed-0" for the state estimation
+                        const fakeVehicleId = `observed-${i}`;
+                        const vehicleData: PlotData = newData.get(fakeVehicleId) ?? createEmptyPlotData();
+
+                        // Some estimators produce 'fleet_v' or 'fleet_velocity', try to be flexible
+                        const v = fleetEst[`fleet_velocity_${i}`] ?? fleetEst[`fleet_v_${i}`] ?? 0;
+                        const thLoc = fleetEst[`fleet_throttle_${i}`] ?? 0;
+                        const stLoc = fleetEst[`fleet_steering_${i}`] ?? fleetEst[`fleet_theta_${i}`] ?? 0; // Use theta if steering missing
+                        const xLoc = fleetEst[`fleet_x_${i}`] ?? 0;
+                        const yLoc = fleetEst[`fleet_y_${i}`] ?? 0;
+
+                        vehicleData.velocity.push({ time: now, value: v });
+                        vehicleData.acceleration.push({ time: now, value: 0 }); // Not available in fleet estimate yet
+                        vehicleData.throttle.push({ time: now, value: thLoc });
+                        vehicleData.steering.push({ time: now, value: stLoc });
+                        vehicleData.x.push({ time: now, value: xLoc });
+                        vehicleData.y.push({ time: now, value: yLoc });
+
+                        // Shift is O(N), use slice instead
+                        Object.keys(vehicleData).forEach(key => {
+                            const arr = vehicleData[key as keyof PlotData];
+                            if (arr.length > maxDataPoints) {
+                                (vehicleData as any)[key] = arr.slice(arr.length - maxDataPoints);
+                            }
+                        });
+
+                        newData.set(fakeVehicleId, vehicleData);
+                    }
+                } else {
+                    // Fallback: If no fleet estimation data is found, show actual telemetry
+                    vehicles.forEach(vehicle => {
+                        const vehicleData: PlotData = newData.get(vehicle.id) ?? createEmptyPlotData();
+
+                        vehicleData.velocity.push({ time: now, value: vehicle.telemetry.velocity });
+                        vehicleData.acceleration.push({ time: now, value: vehicle.telemetry.acceleration ?? 0 });
+                        vehicleData.throttle.push({ time: now, value: vehicle.telemetry.throttle });
+                        vehicleData.steering.push({ time: now, value: vehicle.telemetry.steering });
+                        vehicleData.x.push({ time: now, value: vehicle.telemetry.x });
+                        vehicleData.y.push({ time: now, value: vehicle.telemetry.y });
+
+                        Object.keys(vehicleData).forEach(key => {
+                            const arr = vehicleData[key as keyof PlotData];
+                            if (arr.length > maxDataPoints) {
+                                (vehicleData as any)[key] = arr.slice(arr.length - maxDataPoints);
+                            }
+                        });
+
+                        newData.set(vehicle.id, vehicleData);
                     });
-
-                    newData.set(vehicle.id, vehicleData);
-                });
+                }
+                
                 return newData;
             });
         }
@@ -144,12 +206,14 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
         // Row 2: Heading (skip for now - need theta data)
 
-        // Row 3: Controls
+        // Row 3: Controls and Acceleration
         const ctrlY = margin * 2 + plotHeight * 2;
         drawTimePlot(ctx, margin, ctrlY, plotWidth, plotHeight,
             data.throttle, 'Throttle', '#22c55e', startTime, endTime, -1, 1);
         drawTimePlot(ctx, margin * 2 + plotWidth, ctrlY, plotWidth, plotHeight,
             data.steering, 'Steering', '#ef4444', startTime, endTime, -1, 1);
+        drawTimePlot(ctx, margin * 3 + plotWidth * 2, ctrlY, plotWidth - 10, plotHeight,
+            data.acceleration, '|a| [m/s^2]', '#a855f7', startTime, endTime, 0, 5);
     };
 
     const renderFleetPlot = (
