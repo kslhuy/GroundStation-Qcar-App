@@ -494,24 +494,24 @@ const App: React.FC = () => {
             )}
 
             {/* View Mode Toggle */}
-            <div className="absolute top-4 left-4 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-lg p-1 shadow-lg flex gap-1 z-10">
+            <div className="absolute z-20 bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-full p-1.5 shadow-2xl flex gap-1 transition-all">
               <button
                 onClick={() => setViewMode('map')}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'map' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'map' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
               >
                 Map
               </button>
               <button
                 onClick={() => setViewMode('local')}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'local' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'local' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
               >
                 Local
               </button>
               <button
                 onClick={() => setViewMode('fleet')}
-                className={`hidden sm:block px-3 py-1.5 rounded text-xs font-medium transition-all ${viewMode === 'fleet' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                className={`hidden sm:block px-4 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'fleet' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
               >
                 Fleet

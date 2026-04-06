@@ -159,6 +159,17 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
+        
+        const container = canvas.parentElement;
+        if (container) {
+            // Set canvas size to match container
+            const rect = container.getBoundingClientRect();
+            // Subtract padding if any, the container has padding. 
+            // Better yet, remove padding from container or account for it.
+            // The container has p-4 (16px), so rect.width - 32
+            canvas.width = rect.width - 32;
+            canvas.height = rect.height - 32;
+        }
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
@@ -192,27 +203,29 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         const data = localData.get(selectedVehicleId);
         if (!data) return;
 
-        // Layout: 3x3 grid similar to Python GS
-        const margin = 40;
-        // Increase left margin for labels
-        const leftMargin = 50;
-        const plotWidth = (width - 4 * margin) / 3;
-        const plotHeight = (height - 4 * margin) / 3;
+        const leftMargin = 45;
+        const rightMargin = 20;
+        const topMargin = 20;
+        const bottomMargin = 20;
+        const gap = 35; // space between plots
 
-        // Row 1: Trajectory (2 cols), Velocity
-        drawTrajectoryPlot(ctx, margin, margin, plotWidth * 2 + margin, plotHeight * 2 + margin, data);
-        drawTimePlot(ctx, margin * 2 + plotWidth * 2 + 10, margin, plotWidth - 10, plotHeight,
+        // 2-row layout
+        const rowHeight = (height - topMargin - bottomMargin - gap) / 2;
+
+        // Top row
+        const topColWidth = (width - leftMargin - rightMargin - gap) / 2;
+        drawTrajectoryPlot(ctx, leftMargin, topMargin, topColWidth, rowHeight, data);
+        drawTimePlot(ctx, leftMargin + topColWidth + gap, topMargin, topColWidth, rowHeight,
             data.velocity, 'Velocity [m/s]', '#3b82f6', startTime, endTime, 0, 2);
 
-        // Row 2: Heading (skip for now - need theta data)
-
-        // Row 3: Controls and Acceleration
-        const ctrlY = margin * 2 + plotHeight * 2;
-        drawTimePlot(ctx, margin, ctrlY, plotWidth, plotHeight,
+        // Bottom row
+        const bottomColWidth = (width - leftMargin - rightMargin - 2 * gap) / 3;
+        const row2Y = topMargin + rowHeight + gap;
+        drawTimePlot(ctx, leftMargin, row2Y, bottomColWidth, rowHeight,
             data.throttle, 'Throttle', '#22c55e', startTime, endTime, -1, 1);
-        drawTimePlot(ctx, margin * 2 + plotWidth, ctrlY, plotWidth, plotHeight,
+        drawTimePlot(ctx, leftMargin + bottomColWidth + gap, row2Y, bottomColWidth, rowHeight,
             data.steering, 'Steering', '#ef4444', startTime, endTime, -1, 1);
-        drawTimePlot(ctx, margin * 3 + plotWidth * 2, ctrlY, plotWidth - 10, plotHeight,
+        drawTimePlot(ctx, leftMargin + 2 * (bottomColWidth + gap), row2Y, bottomColWidth, rowHeight,
             data.acceleration, '|a| [m/s^2]', '#a855f7', startTime, endTime, 0, 5);
     };
 
@@ -223,21 +236,25 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         startTime: number,
         endTime: number
     ) => {
-        const margin = 40;
-        const leftMargin = 50; // Extra for labels
-        const plotWidth = (width - 3 * margin) / 2;
-        const plotHeight = (height - 3 * margin) / 2;
+        const leftMargin = 45;
+        const rightMargin = 20;
+        const topMargin = 20;
+        const bottomMargin = 20;
+        const gap = 35;
 
-        // Row 1: Fleet Trajectories (left), Fleet Velocities (right)
-        drawFleetTrajectories(ctx, margin, margin, plotWidth, plotHeight);
-        drawFleetVelocities(ctx, margin * 2 + plotWidth + 10, margin, plotWidth - 10, plotHeight,
+        const colWidth = (width - leftMargin - rightMargin - gap) / 2;
+        const rowHeight = (height - topMargin - bottomMargin - gap) / 2;
+
+        // Row 1: Fleet Trajectories, Fleet Velocities
+        drawFleetTrajectories(ctx, leftMargin, topMargin, colWidth, rowHeight);
+        drawFleetVelocities(ctx, leftMargin + colWidth + gap, topMargin, colWidth, rowHeight,
             startTime, endTime);
 
-        // Row 2: Fleet Throttle (left), Fleet Steering (right)
-        const row2Y = margin * 2 + plotHeight;
-        drawFleetControls(ctx, margin + 10, row2Y, plotWidth - 10, plotHeight,
+        // Row 2: Fleet Throttle, Fleet Steering
+        const row2Y = topMargin + rowHeight + gap;
+        drawFleetControls(ctx, leftMargin, row2Y, colWidth, rowHeight,
             startTime, endTime, 'throttle', 'Fleet Throttle', -1, 1);
-        drawFleetControls(ctx, margin * 2 + plotWidth + 10, row2Y, plotWidth - 10, plotHeight,
+        drawFleetControls(ctx, leftMargin + colWidth + gap, row2Y, colWidth, rowHeight,
             startTime, endTime, 'steering', 'Fleet Steering', -1, 1);
     };
 
@@ -264,10 +281,18 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             ctx.stroke();
         }
 
-        // Title
-        ctx.fillStyle = '#94a3b8';
+        // Draw Data Lines
+
+        // Title (Rendered over grid and lines)
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
         ctx.font = '12px Inter';
-        ctx.fillText('Trajectory (X-Y)', x + 5, y + 15);
+        const labelStr = 'Trajectory (X-Y)';
+        const textWidth = ctx.measureText(labelStr).width;
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+        ctx.fillRect(x + 2, y + 2, textWidth + 8, 18);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(labelStr, x + 6, y + 14);
 
         // Plot X-Y
         if (data.x.length > 0 && data.y.length > 0) {
@@ -338,11 +363,12 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             ctx.lineTo(x + w, y + (h * i / 5));
             ctx.stroke();
         }
-
-        // Title
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = '11px Inter';
-        ctx.fillText(label, x + 5, y + 15);
+        for (let i = 0; i <= 10; i++) {
+            ctx.beginPath();
+            ctx.moveTo(x + (w * i / 10), y);
+            ctx.lineTo(x + (w * i / 10), y + h);
+            ctx.stroke();
+        }
 
         // Draw Data Lines
         if (data.length > 0) {
@@ -364,6 +390,16 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
                 ctx.stroke();
             }
         }
+
+        // Title (Rendered after grid & data lines to prevent overlay issue)
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = '11px Inter';
+        const textWidth = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.85)'; // semi-transparent background
+        ctx.fillRect(x + 2, y + 2, textWidth + 8, 18);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(label, x + 6, y + 14);
 
         // Draw Y-axis labels
         ctx.fillStyle = '#64748b'; // slate-500
@@ -412,9 +448,15 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         }
 
         // Title
-        ctx.fillStyle = '#94a3b8';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
         ctx.font = '12px Inter';
-        ctx.fillText('Fleet Trajectories', x + 5, y + 15);
+        const labelStr = 'Fleet Trajectories';
+        const textWidth = ctx.measureText(labelStr).width;
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+        ctx.fillRect(x + 2, y + 2, textWidth + 8, 18);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(labelStr, x + 6, y + 14);
 
         // Colors for different vehicles
         const colors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
@@ -493,11 +535,12 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             ctx.lineTo(x + w, y + (h * i / 5));
             ctx.stroke();
         }
-
-        // Title
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = '11px Inter';
-        ctx.fillText('Fleet Velocities [m/s]', x + 5, y + 15);
+        for (let i = 0; i <= 10; i++) {
+            ctx.beginPath();
+            ctx.moveTo(x + (w * i / 10), y);
+            ctx.lineTo(x + (w * i / 10), y + h);
+            ctx.stroke();
+        }
 
         // Colors
         const colors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
@@ -525,6 +568,17 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
             colorIndex++;
         });
+
+        // Title
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = '11px Inter';
+        const labelStr = 'Fleet Velocities [m/s]';
+        const textWidth = ctx.measureText(labelStr).width;
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+        ctx.fillRect(x + 2, y + 2, textWidth + 8, 18);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(labelStr, x + 6, y + 14);
 
         // Draw Y-axis labels
         ctx.fillStyle = '#64748b'; // slate-500
@@ -570,11 +624,12 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             ctx.lineTo(x + w, y + (h * i / 5));
             ctx.stroke();
         }
-
-        // Title
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = '11px Inter';
-        ctx.fillText(label, x + 5, y + 15);
+        for (let i = 0; i <= 10; i++) {
+            ctx.beginPath();
+            ctx.moveTo(x + (w * i / 10), y);
+            ctx.lineTo(x + (w * i / 10), y + h);
+            ctx.stroke();
+        }
 
         // Colors
         const colors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
@@ -603,6 +658,16 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
             colorIndex++;
         });
+
+        // Title 
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = '11px Inter';
+        const textWidth = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+        ctx.fillRect(x + 2, y + 2, textWidth + 8, 18);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(label, x + 6, y + 14);
 
         // Draw Y-axis labels
         ctx.fillStyle = '#64748b'; // slate-500
@@ -651,12 +716,10 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             </div>
 
             {/* Canvas */}
-            <div className="flex-1 relative p-4">
+            <div className="flex-1 relative p-4 w-full h-full overflow-hidden">
                 <canvas
                     ref={canvasRef}
-                    width={1200}
-                    height={800}
-                    className="w-full h-full rounded-lg border border-slate-700"
+                    className="block rounded-lg shadow-inner bg-slate-900 border border-slate-700"
                 />
 
                 {mode === 'local' && !selectedVehicleId && (
