@@ -36,11 +36,13 @@ const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClo
     const handleTrigger = () => {
         if (!attackerId) return;
         
-        const attackerIdNum = parseInt(attackerId.replace(/\\D/g, '')) || parseInt(attackerId);
+        const attackerIdNum = attackerId === 'all'
+            ? -1
+            : (parseInt(attackerId.replace(/\\D/g, '')) || parseInt(attackerId));
         const victimIdsNum = victims.map(v => parseInt(v.replace(/\\D/g, '')) || parseInt(v));
 
         bridgeService.triggerAttack(
-            attackerId, // Target the attacker vehicle to enact the attack scenario
+            attackerId, // Target the selected attacker vehicle(s) to enact the attack scenario
             attackType,
             caseNum,
             attackerIdNum,
