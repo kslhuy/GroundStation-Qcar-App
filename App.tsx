@@ -56,7 +56,7 @@ const App: React.FC = () => {
 
   // UI State
   const [rightPanelMode, setRightPanelMode] = useState<'DETAILS' | 'MANUAL' | 'PLATOON' | 'SCOPE' | 'ATTACK' | 'CLOSED'>('CLOSED');
-  const [viewMode, setViewMode] = useState<'map' | 'local' | 'fleet'>('map'); // Map/Data toggle
+  const [viewMode, setViewMode] = useState<'map' | 'local' | 'fleet' | 'playback'>('map'); // Map/Data toggle
   const [isFleetSidebarOpen, setIsFleetSidebarOpen] = useState(window.innerWidth >= 768);
   const [isLogsPanelOpen, setIsLogsPanelOpen] = useState(true);
 
@@ -488,7 +488,7 @@ const App: React.FC = () => {
                 <RealTimeDataPlot
                   vehicles={vehicles}
                   selectedVehicleId={selectedVehicleId}
-                  mode={viewMode === 'local' ? 'local' : 'fleet'}
+                  mode={viewMode === 'local' ? 'local' : viewMode === 'playback' ? 'playback' : 'fleet'}
                 />
               </div>
             )}
@@ -515,6 +515,13 @@ const App: React.FC = () => {
                   }`}
               >
                 Fleet
+              </button>
+              <button
+                onClick={() => setViewMode('playback')}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'playback' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+              >
+                Replay
               </button>
             </div>
           </div>
