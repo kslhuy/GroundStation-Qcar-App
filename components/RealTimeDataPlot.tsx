@@ -681,21 +681,14 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         const margin = { left: 52, right: 24, top: 22, bottom: 28 };
         const gapX = 34;
         const gapY = 42;
-        const titleHeight = 28;
         const plotW = (width - margin.left - margin.right - gapX * 2) / 3;
-        const plotH = (height - margin.top - margin.bottom - titleHeight - gapY * 2) / 3;
-        const y0 = margin.top + titleHeight;
+        const plotH = (height - margin.top - margin.bottom - gapY * 2) / 3;
+        const y0 = margin.top;
         const colX = (col: number) => margin.left + col * (plotW + gapX);
         const rowY = (row: number) => y0 + row * (plotH + gapY);
 
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(0, 0, width, height);
-        ctx.fillStyle = '#e2e8f0';
-        ctx.font = 'bold 15px Inter, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const hostLabel = log.hostVehicleId === null ? 'Host V?' : `Host V${log.hostVehicleId}`;
-        ctx.fillText(`Realtime Trust Log Playback - ${log.fileName} (${hostLabel}, Focus V${log.focusVehicleId})`, width / 2, margin.top);
 
         const trustLines: PlaybackLine[] = log.vehicleIds.flatMap((vehicleId, index) => ([
             { key: `trust_${vehicleId}`, label: `trust V${vehicleId}`, color: playbackColors[index % playbackColors.length], width: 1.5 },
@@ -1681,7 +1674,9 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
                         <span className="text-xs text-slate-400">- {selectedVehicle.name}</span>
                     )}
                     {mode === 'playback' && playbackLog && (
-                        <span className="hidden sm:inline text-xs text-slate-400">- {playbackLog.fileName}</span>
+                        <span className="hidden sm:inline text-xs text-slate-400">
+                            - {playbackLog.fileName} ({playbackLog.hostVehicleId === null ? 'Host V?' : `Host V${playbackLog.hostVehicleId}`}, Focus V{playbackLog.focusVehicleId})
+                        </span>
                     )}
                 </div>
                 <div className="flex items-center gap-3 text-xs text-slate-400">
@@ -1697,8 +1692,8 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             </div>
 
             {mode === 'playback' && (
-                <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/80 flex flex-col gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                <div className="px-4 py-2 border-b border-slate-800 bg-slate-900/80 flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2 shrink-0">
                         <button
                             onClick={() => fileInputRef.current?.click()}
                             className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-colors"
@@ -1745,19 +1740,9 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
                                 <option key={speed} value={speed}>{speed}x</option>
                             ))}
                         </select>
-                        {playbackLog && (
-                            <div className="flex items-center gap-2 text-xs text-slate-400">
-                                <span>{formatPlaybackTime(playbackTime)}</span>
-                                <span>/</span>
-                                <span>{formatPlaybackTime(playbackLog.duration)}</span>
-                                <span className="hidden sm:inline text-slate-500">
-                                    {playbackLog.vehicleIds.length} vehicles
-                                </span>
-                            </div>
-                        )}
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-[200px]">
                         <input
                             type="range"
                             min={0}
@@ -1769,16 +1754,24 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
                                 setPlaybackTime(Number(event.target.value));
                                 setIsPlaybackPlaying(false);
                             }}
-                            className="w-full accent-indigo-500 disabled:opacity-40"
+                            className="flex-1 accent-indigo-500 disabled:opacity-40"
                             title="Playback position"
                         />
-                        <span className="w-12 text-right text-[10px] font-mono text-slate-500">
-                            {playbackProgress.toFixed(0)}%
-                        </span>
+                        {playbackLog && (
+                            <div className="flex items-center gap-2 text-xs text-slate-400 shrink-0">
+                                <span className="w-10 text-right font-mono text-slate-500">
+                                    {playbackProgress.toFixed(0)}%
+                                </span>
+                                <span>{formatPlaybackTime(playbackTime)} / {formatPlaybackTime(playbackLog.duration)}</span>
+                                <span className="hidden sm:inline text-slate-500">
+                                    ({playbackLog.vehicleIds.length} veh)
+                                </span>
+                            </div>
+                        )}
                     </div>
 
                     {playbackError && (
-                        <div className="text-xs text-red-300 bg-red-950/40 border border-red-900/60 rounded px-3 py-2">
+                        <div className="w-full mt-2 text-xs text-red-300 bg-red-950/40 border border-red-900/60 rounded px-3 py-2">
                             {playbackError}
                         </div>
                     )}

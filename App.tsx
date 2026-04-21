@@ -388,7 +388,7 @@ const App: React.FC = () => {
             absolute md:relative z-30 h-full
             w-64 md:w-52
             bg-slate-900 border-r border-slate-800 
-            flex flex-col shrink-0 
+            flex flex-col shrink-0 overflow-hidden
             transition-all duration-300 ease-in-out
             ${isFleetSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:!w-0 md:!border-0'}
         `}>
@@ -595,7 +595,7 @@ const App: React.FC = () => {
             absolute md:relative z-30 h-full
             w-full md:w-80
             bg-slate-900 border-l border-slate-800 
-            flex flex-col shrink-0 
+            flex flex-col shrink-0 overflow-hidden
             transition-all duration-300 ease-in-out
             ${rightPanelMode !== 'CLOSED' ? 'translate-x-0' : 'translate-x-full md:translate-x-0 md:!w-0 md:!border-0'}
         `}>
