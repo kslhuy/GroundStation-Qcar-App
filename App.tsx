@@ -12,9 +12,12 @@ import {
   Plug,
   PlugZap,
   Link2,
+  Settings2,
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   PanelBottomClose,
   PanelBottomOpen,
   Maximize2,
@@ -73,12 +76,12 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Update right panel when vehicle selected
+  // Update right panel when a new vehicle is selected
   useEffect(() => {
-    if (selectedVehicleId && rightPanelMode === 'CLOSED') {
+    if (selectedVehicleId) {
       setRightPanelMode('DETAILS');
     }
-  }, [selectedVehicleId, rightPanelMode]);
+  }, [selectedVehicleId]);
 
 
   // -- Helpers --
@@ -369,6 +372,16 @@ const App: React.FC = () => {
             <span className="hidden md:inline">{globalEStop ? 'E-STOP ENGAGED' : 'EMERGENCY STOP'}</span>
             <span className="md:hidden">STOP</span>
           </button>
+
+          <div className="w-px h-5 bg-slate-800 mx-1 hidden md:block" />
+
+          <button
+            onClick={() => setRightPanelMode(rightPanelMode === 'CLOSED' ? 'DETAILS' : 'CLOSED')}
+            className="text-slate-400 hover:text-white transition-colors hidden md:block"
+            title={rightPanelMode !== 'CLOSED' ? "Collapse Control Panel" : "Expand Control Panel"}
+          >
+            {rightPanelMode !== 'CLOSED' ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
+          </button>
         </div>
       </header>
 
@@ -494,31 +507,31 @@ const App: React.FC = () => {
             )}
 
             {/* View Mode Toggle */}
-            <div className="absolute z-20 bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-full p-1.5 shadow-2xl flex gap-1 transition-all">
+            <div className="absolute z-20 top-0 left-1/2 transform -translate-x-1/2 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-b-full rounded-t-none p-1 shadow-md flex gap-1 transition-all">
               <button
                 onClick={() => setViewMode('map')}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'map' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                className={`px-4 py-1 rounded-full text-xs font-bold transition-all ${viewMode === 'map' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
               >
                 Map
               </button>
               <button
                 onClick={() => setViewMode('local')}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'local' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                className={`px-4 py-1 rounded-full text-xs font-bold transition-all ${viewMode === 'local' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
               >
                 Local
               </button>
               <button
                 onClick={() => setViewMode('fleet')}
-                className={`hidden sm:block px-4 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'fleet' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                className={`hidden sm:block px-4 py-1 rounded-full text-xs font-bold transition-all ${viewMode === 'fleet' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
               >
                 Fleet
               </button>
               <button
                 onClick={() => setViewMode('playback')}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'playback' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                className={`px-4 py-1 rounded-full text-xs font-bold transition-all ${viewMode === 'playback' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
               >
                 Replay
@@ -599,10 +612,11 @@ const App: React.FC = () => {
             transition-all duration-300 ease-in-out
             ${rightPanelMode !== 'CLOSED' ? 'translate-x-0' : 'translate-x-full md:translate-x-0 md:!w-0 md:!border-0'}
         `}>
-          {/* Mobile Close Button for Right Panel */}
-          <div className="md:hidden p-2 border-b border-slate-800 flex justify-end">
-            <button onClick={() => setRightPanelMode('CLOSED')} className="text-slate-400 hover:text-white flex items-center gap-1 text-sm">
-              Close <X size={16} />
+          {/* Header for Right Panel */}
+          <div className="p-3 border-b border-slate-800 flex justify-between items-center text-xs font-semibold text-slate-400 shrink-0">
+            <span className="flex items-center gap-2"><Settings2 size={14} /> CONTROL PANEL</span>
+            <button onClick={() => setRightPanelMode('CLOSED')} className="text-slate-500 hover:text-white transition-colors" title="Close Panel">
+              <X size={16} />
             </button>
           </div>
 

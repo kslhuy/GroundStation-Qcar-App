@@ -22,6 +22,19 @@ interface PlotData {
     y: DataPoint[];
 }
 
+interface AttackInterval {
+    startTime: number;
+    endTime: number;
+    label: string;
+    type: string;
+    targetLabel: string;
+}
+
+interface AttackEvent {
+    time: number;
+    event: string;
+}
+
 interface PlaybackLog {
     fileName: string;
     duration: number;
@@ -32,6 +45,8 @@ interface PlaybackLog {
     focusVehicleId: number;
     data: Map<string, PlotData>;
     series: Map<string, DataPoint[]>;
+    attackIntervals: AttackInterval[];
+    attackEvents: AttackEvent[];
 }
 
 interface PlaybackLine {
@@ -98,6 +113,59 @@ const parseFiniteNumber = (value: string | undefined): number | null => {
     return Number.isFinite(parsed) ? parsed : null;
 };
 
+const parseJsonArray = (value: string | undefined): any[] => {
+    if (!value) return [];
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+};
+
+const normalizeStringList = (value: unknown): string[] => {
+    if (Array.isArray(value)) return value.map(item => String(item)).filter(Boolean);
+    if (value === null || value === undefined || value === '') return [];
+    return String(value).split('|').filter(Boolean);
+};
+
+const normalizeNumberList = (value: unknown): number[] => {
+    const raw = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+    return raw
+        .map(item => Number(item))
+        .filter(item => Number.isFinite(item));
+};
+
+const attackTargetLabel = (interval: any): string => {
+    const dataType = String(interval.data_type ?? interval.dataType ?? '').toLowerCase();
+    const attacker = interval.attacker_id ?? interval.attackerId ?? '?';
+    const victims = normalizeNumberList(interval.victim_ids ?? interval.victimIds);
+    const victimText = victims.includes(-1) || victims.length === 0
+        ? 'all'
+        : victims.map(victim => `V${victim}`).join(',');
+
+    if (dataType === 'local') return `local V${attacker}`;
+    if (dataType === 'fleet') return `fleet ${victimText}`;
+    if (dataType === 'both') return `both V${attacker}->${victimText}`;
+    return dataType || 'attack';
+};
+
+const attackIntervalLabel = (interval: any): string => {
+    const type = String(interval.type ?? interval.attack_type ?? 'attack');
+    const modification = String(interval.modification ?? interval.modification_type ?? '');
+    const dataType = String(interval.data_type ?? interval.dataType ?? '');
+    const fields = normalizeStringList(interval.target_fields ?? interval.fields);
+    return [type, modification, dataType, fields.join('/')]
+        .filter(Boolean)
+        .join(' ');
+};
+
+const relativeAttackTime = (value: unknown, firstTime: number | null, fallback: number): number => {
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) return fallback;
+    return Math.max(0, raw - (firstTime ?? 0));
+};
+
 const extractVehicleIds = (headers: string[]): number[] => {
     const ids = new Set<number>();
     headers.forEach(header => {
@@ -115,6 +183,7 @@ const buildPlaybackColumns = (vehicleIds: number[]): string[] => {
         'trusted_neighbor_count',
         'active_vehicle_count',
         'is_turning',
+        'v2v_attack_enabled',
         'v2v_attack_active',
         'v2v_attack_active_count'
     ]);
@@ -187,6 +256,14 @@ const parseTrustPlaybackCsv = (csvText: string, fileName: string): PlaybackLog =
     let firstTime: number | null = null;
     let lastTime = 0;
     const timeSamples: number[] = [];
+    let latestAttackIntervalsJson = '';
+    let latestAttackEventsJson = '';
+    const fallbackAttackIntervals = new Map<string, any>();
+
+    const cellValue = (cells: string[], column: string): string => {
+        const index = columnIndex.get(column);
+        return index === undefined ? '' : (cells[index] ?? '');
+    };
 
     for (let lineIndex = 1; lineIndex < cleanedLines.length; lineIndex++) {
         const cells = parseCsvLine(cleanedLines[lineIndex]);
@@ -198,6 +275,64 @@ const parseTrustPlaybackCsv = (csvText: string, fileName: string): PlaybackLog =
         if (time < lastTime) continue;
         lastTime = time;
         timeSamples.push(time);
+
+        const attackIntervalsCell = cellValue(cells, 'v2v_attack_intervals').trim();
+        if (attackIntervalsCell) latestAttackIntervalsJson = attackIntervalsCell;
+
+        const attackEventsCell = cellValue(cells, 'v2v_attack_events').trim();
+        if (attackEventsCell) latestAttackEventsJson = attackEventsCell;
+
+        vehicleIds.forEach(vehicleId => {
+            const startValue = parseFiniteNumber(cellValue(cells, `inject_attack_start_${vehicleId}`));
+            if (startValue === null) return;
+            const endValue = parseFiniteNumber(cellValue(cells, `inject_attack_end_${vehicleId}`));
+            const attackType = cellValue(cells, `inject_attack_type_${vehicleId}`);
+            const modification = cellValue(cells, `inject_attack_modification_${vehicleId}`);
+            const dataType = cellValue(cells, `inject_attack_data_type_${vehicleId}`);
+            const fields = normalizeStringList(cellValue(cells, `inject_attack_fields_${vehicleId}`));
+            const attackerRaw = parseFiniteNumber(cellValue(cells, `inject_attack_attacker_${vehicleId}`));
+            const interval = {
+                type: attackType,
+                modification,
+                data_type: dataType,
+                target_fields: fields,
+                start_s: startValue,
+                end_s: endValue,
+                attacker_id: attackerRaw ?? undefined,
+                victim_ids: [vehicleId]
+            };
+            const key = [
+                attackType,
+                modification,
+                dataType,
+                fields.join('|'),
+                startValue.toFixed(6),
+                endValue === null ? 'open' : endValue.toFixed(6),
+                vehicleId
+            ].join('::');
+            fallbackAttackIntervals.set(key, interval);
+        });
+
+        const aggregateAttackStart = parseFiniteNumber(cellValue(cells, 'v2v_attack_start_s'));
+        if (aggregateAttackStart !== null) {
+            const aggregateAttackEnd = parseFiniteNumber(cellValue(cells, 'v2v_attack_end_s'));
+            const interval = {
+                type: cellValue(cells, 'v2v_attack_types'),
+                modification: '',
+                data_type: cellValue(cells, 'v2v_attack_data_types'),
+                target_fields: [],
+                start_s: aggregateAttackStart,
+                end_s: aggregateAttackEnd,
+                victim_ids: []
+            };
+            const key = [
+                interval.type,
+                interval.data_type,
+                aggregateAttackStart.toFixed(6),
+                aggregateAttackEnd === null ? 'open' : aggregateAttackEnd.toFixed(6)
+            ].join('::');
+            fallbackAttackIntervals.set(key, interval);
+        }
 
         series.forEach((points, column) => {
             const value = parseFiniteNumber(cells[columnIndex.get(column) ?? -1]);
@@ -265,6 +400,42 @@ const parseTrustPlaybackCsv = (csvText: string, fileName: string): PlaybackLog =
         ? activeVehicleIds
         : activeVehicleIds.filter(vehicleId => vehicleId !== hostVehicleId);
     const focusVehicleId = focusCandidates[0] ?? activeVehicleIds[0];
+    const attackIntervalsSource = parseJsonArray(latestAttackIntervalsJson);
+    const rawAttackIntervals = attackIntervalsSource.length > 0
+        ? attackIntervalsSource
+        : Array.from(fallbackAttackIntervals.values());
+
+    const attackIntervals: AttackInterval[] = rawAttackIntervals
+        .map(interval => {
+            const startTime = relativeAttackTime(
+                interval.start_s ?? interval.t_start,
+                firstTime,
+                0
+            );
+            const endTime = relativeAttackTime(
+                interval.end_s ?? interval.t_end,
+                firstTime,
+                lastTime
+            );
+            const safeEndTime = Number.isFinite(endTime) && endTime > startTime
+                ? Math.min(endTime, lastTime)
+                : lastTime;
+            return {
+                startTime: Math.min(Math.max(startTime, 0), lastTime),
+                endTime: Math.min(Math.max(safeEndTime, startTime), Math.max(lastTime, startTime)),
+                label: attackIntervalLabel(interval),
+                type: String(interval.type ?? interval.attack_type ?? 'attack'),
+                targetLabel: attackTargetLabel(interval)
+            };
+        })
+        .filter(interval => interval.endTime > interval.startTime);
+
+    const attackEvents: AttackEvent[] = parseJsonArray(latestAttackEventsJson)
+        .map(event => ({
+            event: String(event.event ?? ''),
+            time: relativeAttackTime(event.time_s ?? event.time, firstTime, 0)
+        }))
+        .filter(event => event.event && Number.isFinite(event.time));
 
     return {
         fileName,
@@ -275,7 +446,9 @@ const parseTrustPlaybackCsv = (csvText: string, fileName: string): PlaybackLog =
         hostVehicleId,
         focusVehicleId,
         data: activeData,
-        series
+        series,
+        attackIntervals,
+        attackEvents
     };
 };
 
@@ -573,8 +746,8 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             // Subtract padding if any, the container has padding. 
             // Better yet, remove padding from container or account for it.
             // The container has p-4 (16px), so rect.width - 32
-            canvas.width = rect.width - 32;
-            canvas.height = rect.height - 32;
+            canvas.width = rect.width - 8;
+            canvas.height = rect.height - 8;
         }
 
         const ctx = canvas.getContext('2d');
@@ -735,6 +908,13 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             { key: `global_trust_${log.focusVehicleId}`, label: 'global trust', color: playbackColors[1], dashed: true }
         ];
 
+        const velocityLines: PlaybackLine[] = log.vehicleIds.map((vehicleId, index) => ({
+            key: `est_v_${vehicleId}`,
+            label: `V${vehicleId}`,
+            color: playbackColors[index % playbackColors.length],
+            width: 1.4
+        }));
+
         drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(0), w: plotW, h: plotH }, trustLines,
             'Direct and Generalized Trust', 'Trust [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime, 0.5);
         drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(0), w: plotW, h: plotH }, weightLines,
@@ -746,8 +926,12 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(1), w: plotW, h: plotH }, gammaLines,
             `Component Scores Global Trust V${log.focusVehicleId}`, 'Value [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime);
         drawPlaybackXYPlot(ctx, log, { x: colX(2), y: rowY(1), w: plotW, h: plotH }, startTime, endTime);
-        drawPlaybackFlagsPlot(ctx, log, { x: colX(0), y: rowY(2), w: plotW * 2 + gapX, h: plotH }, startTime, endTime);
-        drawPlaybackStatusPanel(ctx, log, { x: colX(2), y: rowY(2), w: plotW, h: plotH }, endTime, startTime);
+        drawPlaybackAttackTimeline(ctx, log, { x: colX(0), y: rowY(2), w: plotW, h: plotH }, startTime, endTime);
+        drawPlaybackFlagsPlot(ctx, log, { x: colX(1), y: rowY(2), w: plotW, h: plotH }, startTime, endTime);
+        drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(2), w: plotW, h: plotH }, velocityLines,
+            'Estimated Velocity', 'v [m/s]', 'Time [s]', startTime, endTime,
+            boundsForLines(log, velocityLines, { min: 0, max: 1.5 }), endTime);
+        // drawPlaybackStatusPanel(ctx, log, { x: colX(2), y: rowY(2), w: plotW, h: plotH }, endTime, startTime);
     };
 
     const getPlaybackSeries = (log: PlaybackLog, key: string) => log.series.get(key) ?? [];
@@ -847,11 +1031,33 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         ctx.font = '9px Inter, sans-serif';
         ctx.fillStyle = '#94a3b8';
         if (yLabel) {
-            ctx.textAlign = 'right';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(yBounds.max.toFixed(2), rect.x - 6, rect.y);
-            ctx.fillText(((yBounds.max + yBounds.min) / 2).toFixed(2), rect.x - 6, rect.y + rect.h / 2);
-            ctx.fillText(yBounds.min.toFixed(2), rect.x - 6, rect.y + rect.h);
+            const tickX = rect.x + 12;
+            const drawInsideTick = (
+                text: string,
+                y: number,
+                baseline: CanvasTextBaseline
+            ) => {
+                ctx.textAlign = 'left';
+                ctx.textBaseline = baseline;
+                const width = ctx.measureText(text).width;
+                const bgY = baseline === 'top'
+                    ? y - 1
+                    : baseline === 'bottom'
+                        ? y - 11
+                        : y - 6;
+                ctx.fillStyle = 'rgba(30, 41, 59, 0.78)';
+                ctx.fillRect(tickX - 3, bgY, width + 6, 12);
+                ctx.fillStyle = '#94a3b8';
+                ctx.fillText(text, tickX, y);
+            };
+
+            drawInsideTick(yBounds.max.toFixed(2), rect.y + 5, 'top');
+            drawInsideTick(
+                ((yBounds.max + yBounds.min) / 2).toFixed(2),
+                rect.y + rect.h / 2,
+                'middle'
+            );
+            drawInsideTick(yBounds.min.toFixed(2), rect.y + rect.h - 5, 'bottom');
         }
 
         ctx.textAlign = 'center';
@@ -862,9 +1068,14 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
         if (yLabel) {
             ctx.save();
-            ctx.translate(rect.x - 42, rect.y + rect.h / 2);
+            ctx.translate(rect.x + 5, rect.y + rect.h / 2);
             ctx.rotate(-Math.PI / 2);
             ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const labelWidth = ctx.measureText(yLabel).width;
+            ctx.fillStyle = 'rgba(30, 41, 59, 0.78)';
+            ctx.fillRect(-labelWidth / 2 - 4, -6, labelWidth + 8, 12);
+            ctx.fillStyle = '#94a3b8';
             ctx.fillText(yLabel, 0, 0);
             ctx.restore();
         }
@@ -1075,6 +1286,204 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         });
     };
 
+    const drawPlaybackAttackTimeline = (
+        ctx: CanvasRenderingContext2D,
+        log: PlaybackLog,
+        rect: PlotRect,
+        startTime: number,
+        endTime: number
+    ) => {
+        const headerHeight = 24;
+        const headerRect = { x: rect.x, y: rect.y, w: rect.w, h: headerHeight };
+        const plotRect = { x: rect.x, y: rect.y + headerHeight, w: rect.w, h: Math.max(40, rect.h - headerHeight) };
+        const laneLabels = ['module enabled'];
+
+        log.attackIntervals.forEach(interval => {
+            if (!laneLabels.includes(interval.targetLabel)) laneLabels.push(interval.targetLabel);
+        });
+
+        const activeSeries = getPlaybackSeries(log, 'v2v_attack_active');
+        if (log.attackIntervals.length === 0 && activeSeries.length > 0) {
+            laneLabels.push('V2V active');
+        }
+
+        const labelPad = Math.min(82, Math.max(58, rect.w * 0.32));
+        const dataRect = {
+            x: plotRect.x + labelPad,
+            y: plotRect.y,
+            w: Math.max(20, plotRect.w - labelPad - 4),
+            h: plotRect.h
+        };
+        const laneHeight = plotRect.h / Math.max(1, laneLabels.length);
+        const barHeight = Math.min(16, laneHeight * 0.56);
+        const yForLane = (lane: number) => plotRect.y + laneHeight * (lane + 0.5);
+        const xForTime = (time: number) => {
+            const span = Math.max(1e-6, endTime - startTime);
+            return dataRect.x + ((time - startTime) / span) * dataRect.w;
+        };
+        const clampRange = (start: number, end: number) => {
+            const clippedStart = Math.max(startTime, Math.min(endTime, start));
+            const clippedEnd = Math.max(startTime, Math.min(endTime, end));
+            if (clippedEnd <= clippedStart) return null;
+            return { start: clippedStart, end: clippedEnd };
+        };
+        const ellipsize = (text: string, maxWidth: number) => {
+            if (ctx.measureText(text).width <= maxWidth) return text;
+            let next = text;
+            while (next.length > 3 && ctx.measureText(`${next}...`).width > maxWidth) {
+                next = next.slice(0, -1);
+            }
+            return next.length > 3 ? `${next}...` : '';
+        };
+        const flagSpans = (series: DataPoint[]) => {
+            const spans: Array<{ start: number; end: number }> = [];
+            for (let i = 0; i < series.length; i++) {
+                const point = series[i];
+                if (point.value < 0.5) continue;
+                const next = series[i + 1];
+                const span = clampRange(point.time, next?.time ?? log.duration);
+                if (!span) continue;
+                const previous = spans[spans.length - 1];
+                if (previous && span.start <= previous.end + 1e-6) {
+                    previous.end = Math.max(previous.end, span.end);
+                } else {
+                    spans.push(span);
+                }
+            }
+            return spans;
+        };
+
+        drawPlaybackPanelHeader(ctx, headerRect, 'Attack Timeline');
+        drawPlaybackPlotFrame(ctx, plotRect, '', '', 'Time [s]', startTime, endTime, {
+            min: 0,
+            max: Math.max(1, laneLabels.length)
+        });
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(plotRect.x, plotRect.y, plotRect.w, plotRect.h);
+        ctx.clip();
+
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(dataRect.x - 8, plotRect.y);
+        ctx.lineTo(dataRect.x - 8, plotRect.y + plotRect.h);
+        ctx.stroke();
+
+        ctx.font = '8px Inter, sans-serif';
+        ctx.textBaseline = 'middle';
+        laneLabels.forEach((label, lane) => {
+            const y = yForLane(lane);
+            ctx.fillStyle = '#94a3b8';
+            ctx.textAlign = 'right';
+            ctx.fillText(label, dataRect.x - 12, y);
+        });
+
+        flagSpans(getPlaybackSeries(log, 'v2v_attack_enabled')).forEach(span => {
+            const y = yForLane(0);
+            ctx.fillStyle = 'rgba(34, 197, 94, 0.26)';
+            ctx.strokeStyle = '#22c55e';
+            const x0 = xForTime(span.start);
+            const w = Math.max(1, xForTime(span.end) - x0);
+            ctx.fillRect(x0, y - barHeight / 2, w, barHeight);
+            ctx.strokeRect(x0, y - barHeight / 2, w, barHeight);
+        });
+
+        const typeColors = new Map<string, string>();
+        const colorForType = (type: string) => {
+            if (!typeColors.has(type)) {
+                typeColors.set(type, playbackColors[typeColors.size % playbackColors.length]);
+            }
+            return typeColors.get(type) ?? '#3b82f6';
+        };
+
+        const drawIntervalBar = (
+            lane: number,
+            start: number,
+            end: number,
+            label: string,
+            color: string
+        ) => {
+            const span = clampRange(start, end);
+            if (!span) return;
+            const y = yForLane(lane);
+            const x0 = xForTime(span.start);
+            const w = Math.max(1, xForTime(span.end) - x0);
+            ctx.fillStyle = `${color}99`;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.fillRect(x0, y - barHeight / 2, w, barHeight);
+            ctx.strokeRect(x0, y - barHeight / 2, w, barHeight);
+
+            const shortLabel = ellipsize(label, w - 6);
+            if (shortLabel) {
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = '8px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(shortLabel, x0 + w / 2, y);
+            }
+        };
+
+        log.attackIntervals.forEach(interval => {
+            const lane = Math.max(1, laneLabels.indexOf(interval.targetLabel));
+            drawIntervalBar(
+                lane,
+                interval.startTime,
+                interval.endTime,
+                interval.label,
+                colorForType(interval.type)
+            );
+        });
+
+        if (log.attackIntervals.length === 0 && activeSeries.length > 0) {
+            flagSpans(activeSeries).forEach(span => {
+                drawIntervalBar(laneLabels.length - 1, span.start, span.end, 'V2V attack', '#ef4444');
+            });
+        }
+
+        log.attackEvents.forEach(event => {
+            if (event.time < startTime || event.time > endTime) return;
+            const x = xForTime(event.time);
+            const isEnable = event.event.toLowerCase() === 'enable';
+            ctx.strokeStyle = isEnable ? '#22c55e' : '#ef4444';
+            ctx.lineWidth = 1.2;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath();
+            ctx.moveTo(x, plotRect.y);
+            ctx.lineTo(x, plotRect.y + plotRect.h);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = isEnable ? '#86efac' : '#fca5a5';
+            ctx.font = '8px Inter, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.save();
+            ctx.translate(x + 3, plotRect.y + 5);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(event.event, 0, 0);
+            ctx.restore();
+        });
+
+        if (log.attackIntervals.length === 0 && log.attackEvents.length === 0 && activeSeries.length === 0) {
+            ctx.fillStyle = '#64748b';
+            ctx.font = '10px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('No attack intervals', dataRect.x + dataRect.w / 2, plotRect.y + plotRect.h / 2);
+        }
+
+        const playheadX = xForTime(endTime);
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(playheadX, plotRect.y);
+        ctx.lineTo(playheadX, plotRect.y + plotRect.h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+    };
+
     const drawPlaybackFlagsPlot = (
         ctx: CanvasRenderingContext2D,
         log: PlaybackLog,
@@ -1084,25 +1493,28 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
     ) => {
         const focus = log.focusVehicleId;
         const flagLines = [
-            { key: `flag_attack_${focus}`, label: 'target attack', offset: 0.0 },
-            { key: `flag_local_${focus}`, label: 'local bad', offset: 0.15 },
-            { key: `flag_global_${focus}`, label: 'global bad', offset: 0.30 },
-            { key: `rel_meas_used_global_${focus}`, label: 'rel used', offset: 0.45 },
-            { key: `yolo_rel_meas_used_global_${focus}`, label: 'YOLO used', offset: 0.60 },
-            { key: `pred_mode_${focus}`, label: 'prediction', offset: 0.75 },
-            { key: 'is_turning', label: 'turning', offset: 0.90 },
+            { key: `pred_mode_${focus}`, label: 'prediction', offset: 0.0 },
+            { key: `rel_meas_used_global_${focus}`, label: 'rel used', offset:  0.15 },
+            { key: `yolo_rel_meas_used_global_${focus}`, label: 'YOLO used', offset: 0.30 },
+            { key: 'is_turning', label: 'turning', offset: 0.45 },
+            { key: `flag_attack_${focus}`, label: 'target attack', offset: 0.60 },
+            { key: `flag_local_${focus}`, label: 'local bad', offset:  0.75 },
+            { key: `flag_global_${focus}`, label: 'global bad', offset: 0.90  },
             { key: 'v2v_attack_active', label: 'V2V attack', offset: 1.05 }
         ];
         const yBounds = { min: -0.05, max: 1.2 };
         drawPlaybackPlotFrame(ctx, rect, `Flags V${focus}`, '', 'Time [s]', startTime, endTime, yBounds);
 
         ctx.font = '8px Inter, sans-serif';
-        ctx.textAlign = 'right';
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         flagLines.forEach((flag, index) => {
             const y = mapPlaybackPoint(rect, startTime, flag.offset + 0.05, startTime, endTime, yBounds).y;
+            const labelWidth = ctx.measureText(flag.label).width;
+            ctx.fillStyle = 'rgba(30, 41, 59, 0.78)';
+            ctx.fillRect(rect.x + 4, y - 7, labelWidth + 8, 14);
             ctx.fillStyle = '#94a3b8';
-            ctx.fillText(flag.label, rect.x - 8, y);
+            ctx.fillText(flag.label, rect.x + 8, y);
 
             const points = visibleSeries(getPlaybackSeries(log, flag.key), startTime, endTime)
                 .map(point => ({ time: point.time, value: flag.offset + Math.max(0, Math.min(1, point.value)) * 0.1 }));
@@ -1779,7 +2191,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             )}
 
             {/* Canvas */}
-            <div className="flex-1 relative p-4 w-full h-full overflow-hidden">
+            <div className="flex-1 relative p-1 w-full h-full overflow-hidden">
                 <canvas
                     ref={canvasRef}
                     className="block rounded-lg shadow-inner bg-slate-900 border border-slate-700"
