@@ -157,6 +157,15 @@ const App: React.FC = () => {
             ...(msg.perception_active !== undefined && { perception_active: msg.perception_active }),
             ...(msg.scopes_active !== undefined && { scopes_active: msg.scopes_active }),
 
+            // Local RKNet sensor attack status
+            ...(msg.local_sensor_attack_supported !== undefined && { local_sensor_attack_supported: msg.local_sensor_attack_supported }),
+            ...(msg.local_sensor_attack_enabled !== undefined && { local_sensor_attack_enabled: msg.local_sensor_attack_enabled }),
+            ...(msg.local_sensor_attack_active !== undefined && { local_sensor_attack_active: msg.local_sensor_attack_active }),
+            ...(msg.local_sensor_attack_branch_types !== undefined && { local_sensor_attack_branch_types: msg.local_sensor_attack_branch_types }),
+            ...(msg.local_sensor_attack_gps_type !== undefined && { local_sensor_attack_gps_type: msg.local_sensor_attack_gps_type }),
+            ...(msg.local_sensor_attack_remaining_steps !== undefined && { local_sensor_attack_remaining_steps: msg.local_sensor_attack_remaining_steps }),
+            ...(msg.local_sensor_attack_intensity !== undefined && { local_sensor_attack_intensity: msg.local_sensor_attack_intensity }),
+
             // Gear (from operational_status in periodic broadcast or direct)
             ...(msg.operational_status?.gear !== undefined && { gear: msg.operational_status.gear }),
             ...(msg.gear !== undefined && { gear: msg.gear }),

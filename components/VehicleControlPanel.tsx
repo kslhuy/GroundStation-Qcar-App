@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Vehicle, VehicleStatus, LOCAL_OBSERVERS, FLEET_OBSERVERS } from '../types';
-import { Eye, Route, MapPin, Settings2, Cpu, BarChart2, Play, Square, AlertOctagon, Gamepad2, Activity } from 'lucide-react';
+import { Eye, Route, MapPin, Settings2, Play, Square, AlertOctagon, Gamepad2, Activity } from 'lucide-react';
 import { bridgeService } from '../services/websocketBridgeService';
 import { MAX_VELOCITY } from '../constants';
 import ControllerSettingsModal from './ControllerSettingsModal';
@@ -21,9 +21,57 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
     const [localObserver, setLocalObserver] = useState<string>('ekf');
     const [fleetObserver, setFleetObserver] = useState<string>('consensus');
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+    const [localAttackTarget, setLocalAttackTarget] = useState<string>('imu');
+    const [localAttackType, setLocalAttackType] = useState<string>('freeze');
+    const [attackMinSteps, setAttackMinSteps] = useState<number>(20);
+    const [attackMaxSteps, setAttackMaxSteps] = useState<number>(20);
+    const [pendingLocalAttackAction, setPendingLocalAttackAction] = useState<'starting' | 'stopping' | null>(null);
+    const [localAttackFeedback, setLocalAttackFeedback] = useState<string>('');
 
     const availableLocalObservers = vehicle.telemetry.config_data?.local_observers || LOCAL_OBSERVERS;
     const availableFleetObservers = vehicle.telemetry.config_data?.fleet_observers || FLEET_OBSERVERS;
+    const isRobustKalmanNet = vehicle.telemetry.local_observer_type === 'robust_kalman_net';
+    const telemetryLocalAttackEnabled = Boolean(vehicle.telemetry.local_sensor_attack_enabled);
+    const localAttackEnabled = pendingLocalAttackAction === 'starting'
+        ? true
+        : pendingLocalAttackAction === 'stopping'
+            ? false
+            : telemetryLocalAttackEnabled;
+    const localAttackInjecting = Boolean(vehicle.telemetry.local_sensor_attack_active);
+    const localAttackSupported = Boolean(vehicle.telemetry.local_sensor_attack_supported) || isRobustKalmanNet;
+    const activeBranchTypes = (vehicle.telemetry.local_sensor_attack_branch_types || 'none').replace(/wheel/g, 'velocity');
+    const activeGpsAttack = vehicle.telemetry.local_sensor_attack_gps_type || 'none';
+    const remainingAttackSteps = vehicle.telemetry.local_sensor_attack_remaining_steps || 0;
+    const localAttackIntensity = vehicle.telemetry.local_sensor_attack_intensity || 0;
+    const isGpsTarget = localAttackTarget === 'gps';
+    const branchAttackTypes = ['bias', 'scale', 'freeze', 'noise', 'ramp', 'zero_out'];
+    const gpsAttackTypes = ['noise', 'freeze', 'jump', 'dropout', 'reacquisition'];
+
+    useEffect(() => {
+        if (vehicle.telemetry.local_observer_type) {
+            setLocalObserver(vehicle.telemetry.local_observer_type);
+        }
+    }, [vehicle.telemetry.local_observer_type]);
+
+    useEffect(() => {
+        if (vehicle.telemetry.fleet_observer_type) {
+            setFleetObserver(vehicle.telemetry.fleet_observer_type);
+        }
+    }, [vehicle.telemetry.fleet_observer_type]);
+
+    useEffect(() => {
+        if (pendingLocalAttackAction === 'starting' && telemetryLocalAttackEnabled) {
+            setPendingLocalAttackAction(null);
+            setLocalAttackFeedback('Local sensor attack enabled.');
+        } else if (pendingLocalAttackAction === 'stopping' && !telemetryLocalAttackEnabled) {
+            setPendingLocalAttackAction(null);
+            setLocalAttackFeedback('Local sensor attack stopped.');
+        }
+    }, [pendingLocalAttackAction, telemetryLocalAttackEnabled]);
+
+    useEffect(() => {
+        setLocalAttackType(isGpsTarget ? 'freeze' : 'freeze');
+    }, [isGpsTarget]);
 
     // Path and Position controls
     const [pathNodes, setPathNodes] = useState('1,2,3,4');
@@ -63,6 +111,38 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
     const handleTogglePerception = () => {
         const isActive = vehicle.telemetry.perception_active;
         bridgeService.setPerception(!isActive, vehicle.id);
+    };
+
+    const handleStartLocalSensorAttack = () => {
+        const minSteps = Math.max(1, Math.round(attackMinSteps));
+        const maxSteps = Math.max(minSteps, Math.round(attackMaxSteps));
+        const success = bridgeService.startLocalSensorAttack(vehicle.id, {
+            target_sensor: localAttackTarget,
+            attack_prob: isGpsTarget ? 0.0 : 1.0,
+            gps_attack_prob: isGpsTarget ? 1.0 : 0.0,
+            enabled_attacks: isGpsTarget ? branchAttackTypes : [localAttackType],
+            gps_attack_types: isGpsTarget ? [localAttackType] : gpsAttackTypes,
+            min_attack_steps: minSteps,
+            max_attack_steps: maxSteps,
+            max_branches_attacked: 1,
+        });
+
+        if (success) {
+            setPendingLocalAttackAction('starting');
+            setLocalAttackFeedback('Start command sent. Waiting for vehicle telemetry...');
+        } else {
+            setLocalAttackFeedback('Failed to send start command.');
+        }
+    };
+
+    const handleStopLocalSensorAttack = () => {
+        const success = bridgeService.stopLocalSensorAttack(vehicle.id);
+        if (success) {
+            setPendingLocalAttackAction('stopping');
+            setLocalAttackFeedback('Stop command sent. Waiting for vehicle telemetry...');
+        } else {
+            setLocalAttackFeedback('Failed to send stop command.');
+        }
     };
 
     // Get state color
@@ -258,6 +338,135 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                     </select>
                     <button onClick={handleApplyFleetObserver} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-2 py-1 rounded">Apply</button>
                 </div>
+            </div>
+
+            <div className="space-y-3 pt-3 border-t border-slate-700">
+                <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-2">
+                        <AlertOctagon size={12} /> Local Sensor Attack
+                    </p>
+                    <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold border ${localAttackEnabled
+                            ? localAttackInjecting
+                                ? 'bg-red-950/60 text-red-300 border-red-700'
+                                : 'bg-amber-950/60 text-amber-300 border-amber-700'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                            }`}
+                    >
+                        {pendingLocalAttackAction === 'starting'
+                            ? 'STARTING'
+                            : pendingLocalAttackAction === 'stopping'
+                                ? 'STOPPING'
+                                : localAttackEnabled
+                                    ? (localAttackInjecting ? 'INJECTING' : 'ARMED')
+                                    : 'IDLE'}
+                    </span>
+                </div>
+
+                {!isRobustKalmanNet && (
+                    <div className="rounded-lg border border-amber-800/70 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-200">
+                        Local attacks only apply when the active local observer is `robust_kalman_net`.
+                    </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-2">
+                        <span className="block text-slate-500 uppercase tracking-wide">Branch</span>
+                        <span className="block mt-1 text-slate-200 break-words">{activeBranchTypes}</span>
+                    </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-2">
+                        <span className="block text-slate-500 uppercase tracking-wide">GPS</span>
+                        <span className="block mt-1 text-slate-200">{activeGpsAttack}</span>
+                    </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-2">
+                        <span className="block text-slate-500 uppercase tracking-wide">Remaining</span>
+                        <span className="block mt-1 text-slate-200">{remainingAttackSteps} steps</span>
+                    </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-2">
+                        <span className="block text-slate-500 uppercase tracking-wide">Intensity</span>
+                        <span className="block mt-1 text-slate-200">{localAttackIntensity.toFixed(2)}</span>
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <div className="flex gap-2 items-center">
+                        <span className="text-[10px] text-slate-500 w-16">Target:</span>
+                        <select
+                            value={localAttackTarget}
+                            onChange={(e) => setLocalAttackTarget(e.target.value)}
+                            disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled || pendingLocalAttackAction !== null}
+                            className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 disabled:opacity-50"
+                        >
+                            <option value="imu">IMU</option>
+                            <option value="gps">GPS</option>
+                            <option value="velocity">Velocity</option>
+                            <option value="steering">Steering</option>
+                            <option value="random">Random Branch</option>
+                        </select>
+                    </div>
+
+                    <div className="flex gap-2 items-center">
+                        <span className="text-[10px] text-slate-500 w-16">Type:</span>
+                        <select
+                            value={localAttackType}
+                            onChange={(e) => setLocalAttackType(e.target.value)}
+                            disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled}
+                            className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 disabled:opacity-50"
+                        >
+                            {(isGpsTarget ? gpsAttackTypes : branchAttackTypes).map((attackType) => (
+                                <option key={attackType} value={attackType}>{attackType}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="flex gap-2 items-center">
+                        <span className="text-[10px] text-slate-500 w-16">Duration:</span>
+                        <input
+                            type="number"
+                            min="1"
+                            value={attackMinSteps}
+                            onChange={(e) => setAttackMinSteps(parseInt(e.target.value || '1', 10))}
+                            disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled}
+                            className="w-20 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 disabled:opacity-50"
+                        />
+                        <span className="text-[10px] text-slate-500">to</span>
+                        <input
+                            type="number"
+                            min="1"
+                            value={attackMaxSteps}
+                            onChange={(e) => setAttackMaxSteps(parseInt(e.target.value || '1', 10))}
+                            disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled}
+                            className="w-20 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 disabled:opacity-50"
+                        />
+                        <span className="text-[10px] text-slate-500">steps</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                        1 step = 1 RKNet observer update tick. At 100 Hz, 100 steps is about 1 second.
+                    </div>
+                </div>
+
+                <div className="flex gap-2">
+                    <button
+                        onClick={handleStartLocalSensorAttack}
+                        disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled || pendingLocalAttackAction !== null}
+                        className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium bg-red-700 hover:bg-red-600 disabled:bg-slate-800 disabled:text-slate-500 text-white transition-colors"
+                    >
+                        <Play size={14} /> Start Attack
+                    </button>
+                    <button
+                        onClick={handleStopLocalSensorAttack}
+                        disabled={!localAttackEnabled || pendingLocalAttackAction !== null}
+                        className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-500 text-white transition-colors"
+                    >
+                        <Square size={14} /> Stop Attack
+                    </button>
+                </div>
+
+                {localAttackFeedback && (
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-300">
+                        {localAttackFeedback}
+                    </div>
+                )}
             </div>
 
             {/* Controller Settings Modal Trigger */}

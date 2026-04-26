@@ -15,7 +15,7 @@ export enum VehicleStatus {
 }
 
 // Runtime Configuration - matching Python car_panel.py RuntimeSwitchingControl
-export const LOCAL_OBSERVERS = ['ekf', 'luenberger', 'neural_luenberger'] as const;
+export const LOCAL_OBSERVERS = ['ekf', 'luenberger', 'neural_luenberger', 'robust_kalman_net'] as const;
 export const FLEET_OBSERVERS = ['consensus', 'distributed_luenberger', 'trust_consensus', 'trust_kalman'] as const;
 export const PATH_LONGITUDINAL_CONTROLLERS = ['pid', 'cacc', 'sa_acc'] as const;
 export const PATH_LATERAL_CONTROLLERS = ['pp_map', 'path', 'stanley', 'mpc'] as const;
@@ -67,6 +67,15 @@ export interface TelemetryData {
   // Perception (from periodic broadcast)
   perception_active?: boolean;
   scopes_active?: boolean;
+
+  // Local RKNet sensor attack status
+  local_sensor_attack_supported?: boolean;
+  local_sensor_attack_enabled?: boolean;
+  local_sensor_attack_active?: boolean;
+  local_sensor_attack_branch_types?: string;
+  local_sensor_attack_gps_type?: string;
+  local_sensor_attack_remaining_steps?: number;
+  local_sensor_attack_intensity?: number;
 
   // Reference Path (from node_sequence generation)
   path_x?: number[];

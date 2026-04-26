@@ -70,6 +70,15 @@ export interface TelemetryMessage extends BridgeMessage {
     perception_active?: boolean;
     scopes_active?: boolean;
 
+    // Local RKNet sensor attack status
+    local_sensor_attack_supported?: boolean;
+    local_sensor_attack_enabled?: boolean;
+    local_sensor_attack_active?: boolean;
+    local_sensor_attack_branch_types?: string;
+    local_sensor_attack_gps_type?: string;
+    local_sensor_attack_remaining_steps?: number;
+    local_sensor_attack_intensity?: number;
+
     // Reference Path
     path_x?: number[];
     path_y?: number[];
@@ -335,6 +344,14 @@ class WebSocketBridgeService {
 
     disableAttack(target: string | 'all'): boolean {
         return this.sendCommand('disable_attack', target);
+    }
+
+    startLocalSensorAttack(target: string, config: Record<string, any>): boolean {
+        return this.sendCommand('start_local_sensor_attack', target, { config });
+    }
+
+    stopLocalSensorAttack(target: string): boolean {
+        return this.sendCommand('stop_local_sensor_attack', target);
     }
 
     /**
