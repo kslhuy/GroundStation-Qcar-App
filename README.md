@@ -138,8 +138,7 @@ Open a **new** terminal window:
 ```bash
 # Navigate to Ground Station folder
 cd C:\Users\Quang Huy Nugyen\Desktop\PHD_paper\Simulation\QCAR\QCar2_Cran\GroundStation-Qcar-App
-cd \GroundStation-Qcar-App
-
+cd .\GroundStation-Qcar-App\
 # Start the development server
 npm run dev
 

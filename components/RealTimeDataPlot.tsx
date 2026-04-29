@@ -185,7 +185,12 @@ const buildPlaybackColumns = (vehicleIds: number[]): string[] => {
         'is_turning',
         'v2v_attack_enabled',
         'v2v_attack_active',
-        'v2v_attack_active_count'
+        'v2v_attack_active_count',
+        'rollback_enabled',
+        'rollback_triggered',
+        'rollback_total',
+        'rollback_active_count',
+        'rollback_newly_flagged_count'
     ]);
 
     const prefixes = [
@@ -807,7 +812,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         drawTimePlot(ctx, leftMargin + bottomColWidth + gap, row2Y, bottomColWidth, rowHeight,
             data.steering, 'Steering', '#ef4444', startTime, endTime, -1, 1);
         drawTimePlot(ctx, leftMargin + 2 * (bottomColWidth + gap), row2Y, bottomColWidth, rowHeight,
-            data.acceleration, '|a| [m/s^2]', '#a855f7', startTime, endTime, 0, 5);
+            data.acceleration, 'Acceleration [m/s^2]', '#a855f7', startTime, endTime, -5, 5);
     };
 
     const renderFleetPlot = (
@@ -903,9 +908,12 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             color: playbackColors[index % playbackColors.length]
         }));
 
-        const finalLines: PlaybackLine[] = [
-            { key: `local_trust_${log.focusVehicleId}`, label: 'local trust', color: playbackColors[0] },
-            { key: `global_trust_${log.focusVehicleId}`, label: 'global trust', color: playbackColors[1], dashed: true }
+        // const finalLines: PlaybackLine[] = [
+        //     { key: `local_trust_${log.focusVehicleId}`, label: 'local trust', color: playbackColors[0] },
+        //     { key: `global_trust_${log.focusVehicleId}`, label: 'global trust', color: playbackColors[1], dashed: true }
+        // ];
+        const rollbackLines: PlaybackLine[] = [
+            { key: 'rollback_triggered', label: 'rollback triggered', color: '#ef4444', stepped: true }
         ];
 
         const velocityLines: PlaybackLine[] = log.vehicleIds.map((vehicleId, index) => ({
@@ -919,8 +927,11 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             'Direct and Generalized Trust', 'Trust [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime, 0.5);
         drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(0), w: plotW, h: plotH }, weightLines,
             'Consensus Weights', 'Weight', '', startTime, endTime, boundsForLines(log, weightLines, { min: 0, max: 1 }), endTime);
-        drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(0), w: plotW, h: plotH }, finalLines,
-            `Final Trust Score Local and Global V${log.focusVehicleId}`, 'Trust [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime);
+        // drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(0), w: plotW, h: plotH }, finalLines,
+        //     `Final Trust Score Local and Global V${log.focusVehicleId}`, 'Trust [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime);
+        drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(0), w: plotW, h: plotH }, rollbackLines,
+            'Rollback Trigger', 'State', '', startTime, endTime,
+            boundsForLines(log, rollbackLines, { min: 0, max: 1 }), endTime);
         drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(1), w: plotW, h: plotH }, componentLines,
             `Component Scores Local Trust V${log.focusVehicleId}`, 'Score [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime);
         drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(1), w: plotW, h: plotH }, gammaLines,

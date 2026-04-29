@@ -68,7 +68,7 @@ export interface TelemetryData {
   perception_active?: boolean;
   scopes_active?: boolean;
 
-  // Local RKNet sensor attack status
+  // Local RKNet sensor attack status (received via periodic status, stored in telemetry state)
   local_sensor_attack_supported?: boolean;
   local_sensor_attack_enabled?: boolean;
   local_sensor_attack_active?: boolean;

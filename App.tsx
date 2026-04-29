@@ -128,6 +128,7 @@ const App: React.FC = () => {
             ...((msg.theta !== undefined || msg.th !== undefined) && { theta: msg.theta ?? msg.th }),
             // velocity: accept both 'velocity' (Web) and 'v' (Python)
             ...((msg.velocity !== undefined || msg.v !== undefined) && { velocity: msg.velocity ?? msg.v }),
+            ...(msg.acceleration !== undefined && { acceleration: msg.acceleration }),
             ...(msg.battery !== undefined && { battery: msg.battery }),
             // steering: accept both 'steering' (Web) and 'delta' (Python)
             ...((msg.steering !== undefined || msg.delta !== undefined) && { steering: msg.steering ?? msg.delta }),

@@ -32,6 +32,7 @@ export interface TelemetryMessage extends BridgeMessage {
     y?: number;
     theta?: number;
     velocity?: number;
+    acceleration?: number;
     battery?: number;
     steering?: number;
     throttle?: number;
@@ -70,7 +71,7 @@ export interface TelemetryMessage extends BridgeMessage {
     perception_active?: boolean;
     scopes_active?: boolean;
 
-    // Local RKNet sensor attack status
+    // Local RKNet sensor attack status (periodic status path, merged into vehicle telemetry state)
     local_sensor_attack_supported?: boolean;
     local_sensor_attack_enabled?: boolean;
     local_sensor_attack_active?: boolean;

@@ -31,12 +31,12 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
     const availableLocalObservers = vehicle.telemetry.config_data?.local_observers || LOCAL_OBSERVERS;
     const availableFleetObservers = vehicle.telemetry.config_data?.fleet_observers || FLEET_OBSERVERS;
     const isRobustKalmanNet = vehicle.telemetry.local_observer_type === 'robust_kalman_net';
-    const telemetryLocalAttackEnabled = Boolean(vehicle.telemetry.local_sensor_attack_enabled);
+    const statusLocalAttackEnabled = Boolean(vehicle.telemetry.local_sensor_attack_enabled);
     const localAttackEnabled = pendingLocalAttackAction === 'starting'
         ? true
         : pendingLocalAttackAction === 'stopping'
             ? false
-            : telemetryLocalAttackEnabled;
+            : statusLocalAttackEnabled;
     const localAttackInjecting = Boolean(vehicle.telemetry.local_sensor_attack_active);
     const localAttackSupported = Boolean(vehicle.telemetry.local_sensor_attack_supported) || isRobustKalmanNet;
     const activeBranchTypes = (vehicle.telemetry.local_sensor_attack_branch_types || 'none').replace(/wheel/g, 'velocity');
@@ -60,14 +60,14 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
     }, [vehicle.telemetry.fleet_observer_type]);
 
     useEffect(() => {
-        if (pendingLocalAttackAction === 'starting' && telemetryLocalAttackEnabled) {
+        if (pendingLocalAttackAction === 'starting' && statusLocalAttackEnabled) {
             setPendingLocalAttackAction(null);
             setLocalAttackFeedback('Local sensor attack enabled.');
-        } else if (pendingLocalAttackAction === 'stopping' && !telemetryLocalAttackEnabled) {
+        } else if (pendingLocalAttackAction === 'stopping' && !statusLocalAttackEnabled) {
             setPendingLocalAttackAction(null);
             setLocalAttackFeedback('Local sensor attack stopped.');
         }
-    }, [pendingLocalAttackAction, telemetryLocalAttackEnabled]);
+    }, [pendingLocalAttackAction, statusLocalAttackEnabled]);
 
     useEffect(() => {
         setLocalAttackType(isGpsTarget ? 'freeze' : 'freeze');
@@ -129,7 +129,7 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
 
         if (success) {
             setPendingLocalAttackAction('starting');
-            setLocalAttackFeedback('Start command sent. Waiting for vehicle telemetry...');
+            setLocalAttackFeedback('Start command sent. Waiting for vehicle status update...');
         } else {
             setLocalAttackFeedback('Failed to send start command.');
         }
@@ -139,7 +139,7 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
         const success = bridgeService.stopLocalSensorAttack(vehicle.id);
         if (success) {
             setPendingLocalAttackAction('stopping');
-            setLocalAttackFeedback('Stop command sent. Waiting for vehicle telemetry...');
+            setLocalAttackFeedback('Stop command sent. Waiting for vehicle status update...');
         } else {
             setLocalAttackFeedback('Failed to send stop command.');
         }
