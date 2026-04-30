@@ -41,6 +41,8 @@ import { RealTimeDataPlot } from './components/RealTimeDataPlot';
 import VehicleControlPanel from './components/VehicleControlPanel';
 import AttackControlPanel from './components/AttackControlPanel';
 
+const BRIDGE_AUTO_CONNECT_STORAGE_KEY = 'qcar-bridge-auto-connect-enabled';
+
 const App: React.FC = () => {
   // -- State --
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);  // Start empty, populate from bridge
@@ -98,8 +100,11 @@ const App: React.FC = () => {
 
   // -- WebSocket Bridge --
   useEffect(() => {
-    // Auto-connect to bridge on mount
-    bridgeService.connect();
+    // Auto-connect unless the user previously disconnected the bridge manually.
+    const shouldAutoConnect = window.localStorage.getItem(BRIDGE_AUTO_CONNECT_STORAGE_KEY) !== 'false';
+    if (shouldAutoConnect) {
+      bridgeService.connect();
+    }
 
     // Status
     const unsubStatus = bridgeService.onStatusChange((status) => {
@@ -282,8 +287,13 @@ const App: React.FC = () => {
   // -- Handlers --
 
   const handleConnectBridge = () => {
-    if (bridgeStatus === 'connected') bridgeService.disconnect();
-    else bridgeService.connect();
+    if (bridgeStatus === 'connected' || bridgeStatus === 'connecting') {
+      window.localStorage.setItem(BRIDGE_AUTO_CONNECT_STORAGE_KEY, 'false');
+      bridgeService.disconnect();
+    } else {
+      window.localStorage.setItem(BRIDGE_AUTO_CONNECT_STORAGE_KEY, 'true');
+      bridgeService.connect();
+    }
   };
 
   const toggleGlobalEStop = () => {

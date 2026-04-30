@@ -145,6 +145,7 @@ class WebSocketBridgeService {
     private reconnectAttempts = 0;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    private autoReconnectEnabled = true;
     private eventHandlers: Map<string, Set<BridgeEventHandler>> = new Map();
     private statusChangeCallbacks: Set<(status: ConnectionStatus) => void> = new Set();
 
@@ -162,6 +163,7 @@ class WebSocketBridgeService {
             return;
         }
 
+        this.autoReconnectEnabled = true;
         this.setConnectionStatus('connecting');
         console.log(`[WS] Connecting to bridge at ${url}...`);
 
@@ -183,7 +185,9 @@ class WebSocketBridgeService {
                 console.log(`[WS] Connection closed (code: ${event.code})`);
                 this.cleanup();
                 this.setConnectionStatus('disconnected');
-                this.scheduleReconnect();
+                if (this.autoReconnectEnabled) {
+                    this.scheduleReconnect();
+                }
             };
 
             this.socket.onerror = (error) => {
@@ -203,6 +207,7 @@ class WebSocketBridgeService {
      */
     disconnect(): void {
         console.log('[WS] Disconnecting from bridge...');
+        this.autoReconnectEnabled = false;
         this.cleanup();
         if (this.socket) {
             this.socket.close(1000, 'User disconnect');
