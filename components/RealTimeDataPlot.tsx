@@ -169,8 +169,17 @@ const relativeAttackTime = (value: unknown, firstTime: number | null, fallback: 
 const extractVehicleIds = (headers: string[]): number[] => {
     const ids = new Set<number>();
     headers.forEach(header => {
-        const match = header.match(/^(?:vehicle_present|est_x|est_y|est_theta|est_v|est_a|trust|gtrust|w_neighbor)_(\d+)$/);
-        if (match) ids.add(Number(match[1]));
+        const match = header.match(/^(?:vehicle_present|est_x|est_y|est_theta|est_v|est_a|trust|gtrust|w_neighbor|w0_final|w_self_final|w_neighbor_sum_final)_(\d+)$/);
+        if (match) {
+            ids.add(Number(match[1]));
+            return;
+        }
+
+        const sourceWeightMatch = header.match(/^w_neighbor_from_v(\d+)_to_(\d+)$/);
+        if (sourceWeightMatch) {
+            ids.add(Number(sourceWeightMatch[1]));
+            ids.add(Number(sourceWeightMatch[2]));
+        }
     });
     return Array.from(ids).sort((a, b) => a - b);
 };
@@ -200,6 +209,9 @@ const buildPlaybackColumns = (vehicleIds: number[]): string[] => {
         'local_trust',
         'global_trust',
         'w_neighbor',
+        'w0_final',
+        'w_self_final',
+        'w_neighbor_sum_final',
         'pred_mode',
         'est_x',
         'est_y',
@@ -224,6 +236,9 @@ const buildPlaybackColumns = (vehicleIds: number[]): string[] => {
 
     vehicleIds.forEach(vehicleId => {
         prefixes.forEach(prefix => columns.add(`${prefix}_${vehicleId}`));
+        vehicleIds.forEach(sourceId => {
+            columns.add(`w_neighbor_from_v${sourceId}_to_${vehicleId}`);
+        });
     });
 
     return Array.from(columns);
@@ -377,7 +392,10 @@ const parseTrustPlaybackCsv = (csvText: string, fileName: string): PlaybackLog =
             vehicleData.y.length > 0 ||
             vehicleData.velocity.length > 0 ||
             (series.get(`trust_${vehicleId}`)?.length ?? 0) > 0 ||
-            (series.get(`gtrust_${vehicleId}`)?.length ?? 0) > 0
+            (series.get(`gtrust_${vehicleId}`)?.length ?? 0) > 0 ||
+            (series.get(`w0_final_${vehicleId}`)?.length ?? 0) > 0 ||
+            (series.get(`w_self_final_${vehicleId}`)?.length ?? 0) > 0 ||
+            (series.get(`w_neighbor_sum_final_${vehicleId}`)?.length ?? 0) > 0
         ));
     });
 
@@ -868,12 +886,40 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(0, 0, width, height);
 
-        const trustLines: PlaybackLine[] = log.vehicleIds.flatMap((vehicleId, index) => ([
-            { key: `trust_${vehicleId}`, label: `trust V${vehicleId}`, color: playbackColors[index % playbackColors.length], width: 1.5 },
-            { key: `gtrust_${vehicleId}`, label: `gtrust V${vehicleId}`, color: playbackColors[index % playbackColors.length], dashed: true, width: 1.2 }
-        ]));
+        const trustLines: PlaybackLine[] = log.vehicleIds.map((vehicleId, index) => ({
+            key: `trust_${vehicleId}`,
+            label: `trust V${vehicleId}`,
+            color: playbackColors[index % playbackColors.length],
+            width: 1.5
+        }));
 
-        const weightLines: PlaybackLine[] = [
+        const finalWeightLines: PlaybackLine[] = [
+            {
+                key: `w0_final_${log.focusVehicleId}`,
+                label: `w0 -> V${log.focusVehicleId}`,
+                color: '#3b82f6',
+                dashed: true
+            },
+            {
+                key: `w_self_final_${log.focusVehicleId}`,
+                label: `w_self -> V${log.focusVehicleId}`,
+                color: '#e2e8f0',
+                dashed: true
+            },
+            {
+                key: `w_neighbor_sum_final_${log.focusVehicleId}`,
+                label: `neighbor sum -> V${log.focusVehicleId}`,
+                color: '#f59e0b',
+                width: 1.5
+            },
+            // ...log.vehicleIds.map((sourceId, index) => ({
+            //     key: `w_neighbor_from_v${sourceId}_to_${log.focusVehicleId}`,
+            //     label: `V${sourceId} -> V${log.focusVehicleId}`,
+            //     color: playbackColors[index % playbackColors.length],
+            //     width: 1.1
+            // }))
+        ];
+        const legacyWeightLines: PlaybackLine[] = [
             { key: 'w0', label: 'w0', color: '#e2e8f0', dashed: true },
             { key: 'w_self', label: 'w_self', color: '#3b82f6', dashed: true },
             { key: 'total_neighbor_weight', label: 'neighbor total', color: '#f59e0b' },
@@ -884,6 +930,11 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
                 width: 1.1
             }))
         ];
+        const hasFinalWeights = finalWeightLines.some(line => getPlaybackSeries(log, line.key).length > 0);
+        const weightLines = hasFinalWeights ? finalWeightLines : legacyWeightLines;
+        const weightTitle = hasFinalWeights
+            ? `Final Weights for Target V${log.focusVehicleId}`
+            : 'Consensus Weights (Legacy Summary)';
 
         const componentLines: PlaybackLine[] = [
             [`v_score_${log.focusVehicleId}`, 'velocity'],
@@ -908,10 +959,6 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             color: playbackColors[index % playbackColors.length]
         }));
 
-        // const finalLines: PlaybackLine[] = [
-        //     { key: `local_trust_${log.focusVehicleId}`, label: 'local trust', color: playbackColors[0] },
-        //     { key: `global_trust_${log.focusVehicleId}`, label: 'global trust', color: playbackColors[1], dashed: true }
-        // ];
         const rollbackLines: PlaybackLine[] = [
             { key: 'rollback_triggered', label: 'rollback triggered', color: '#ef4444', stepped: true }
         ];
@@ -926,9 +973,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(0), w: plotW, h: plotH }, trustLines,
             'Direct and Generalized Trust', 'Trust [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime, 0.5);
         drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(0), w: plotW, h: plotH }, weightLines,
-            'Consensus Weights', 'Weight', '', startTime, endTime, boundsForLines(log, weightLines, { min: 0, max: 1 }), endTime);
-        // drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(0), w: plotW, h: plotH }, finalLines,
-        //     `Final Trust Score Local and Global V${log.focusVehicleId}`, 'Trust [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime);
+            weightTitle, 'Weight', '', startTime, endTime, boundsForLines(log, weightLines, { min: 0, max: 1 }), endTime);
         drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(0), w: plotW, h: plotH }, rollbackLines,
             'Rollback Trigger', 'State', '', startTime, endTime,
             boundsForLines(log, rollbackLines, { min: 0, max: 1 }), endTime);
