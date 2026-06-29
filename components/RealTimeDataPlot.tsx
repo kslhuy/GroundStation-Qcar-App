@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Vehicle } from '../types';
-import { Activity, TrendingUp, Gauge, MapPin, Upload, Play, Pause, RotateCcw } from 'lucide-react';
+import { Activity, TrendingUp, Gauge, Layers, MapPin, Upload, Play, Pause, RotateCcw } from 'lucide-react';
 
 interface RealTimeDataPlotProps {
     vehicles: Vehicle[];
@@ -28,6 +28,7 @@ interface AttackInterval {
     label: string;
     type: string;
     targetLabel: string;
+    attackerLabel: string;
 }
 
 interface AttackEvent {
@@ -69,6 +70,95 @@ interface PlotRect {
     w: number;
     h: number;
 }
+
+type PlaybackLayer = 'trust' | 'motion' | 'prediction' | 'controller' | 'attack';
+
+const playbackLayerOptions: Array<{ id: PlaybackLayer; label: string }> = [
+    { id: 'trust', label: 'Trust' },
+    { id: 'motion', label: 'Motion' },
+    { id: 'prediction', label: 'Prediction' },
+    { id: 'controller', label: 'Controller' },
+    { id: 'attack', label: 'Attack' }
+];
+
+const playbackAttackValueFields = ['x', 'y', 'theta', 'velocity', 'acceleration', 'confidence'];
+
+const playbackVehiclePrefixes = [
+    'vehicle_present',
+    'trust',
+    'gtrust',
+    'local_trust',
+    'global_trust',
+    'w_neighbor',
+    'w0_final',
+    'w_self_final',
+    'w_neighbor_sum_final',
+    'pred_mode',
+    'est_conf',
+    'consensus_x',
+    'consensus_y',
+    'consensus_theta',
+    'consensus_v',
+    'consensus_a',
+    'postpred_x',
+    'postpred_y',
+    'postpred_theta',
+    'postpred_v',
+    'postpred_a',
+    'ref_x',
+    'ref_y',
+    'ref_theta',
+    'ref_v',
+    'consensus_pos_err',
+    'postpred_pos_err',
+    'est_pos_err',
+    'consensus_vel_err',
+    'postpred_vel_err',
+    'est_vel_err',
+    'postpred_to_est_pos_gap',
+    'pred_dt',
+    'pred_dx',
+    'pred_dy',
+    'pred_step_norm',
+    'pred_speed_dt',
+    'pred_steer',
+    'pred_host_steer',
+    'pred_theta_in',
+    'pred_theta_out',
+    'pred_v_in',
+    'pred_v_out',
+    'pred_host_v',
+    'est_x',
+    'est_y',
+    'est_v',
+    'est_a',
+    'est_theta',
+    'v_score',
+    'd_score',
+    'a_score',
+    'h_score',
+    'b_score',
+    'q_factor',
+    'gamma_host',
+    'gamma_local_peer',
+    'gamma_self',
+    'flag_attack',
+    'flag_local',
+    'flag_global',
+    'inject_attack_active',
+    'rel_meas_used_global',
+    'yolo_rel_meas_used_global'
+];
+
+playbackAttackValueFields.forEach(field => {
+    playbackVehiclePrefixes.push(
+        `inject_attack_original_${field}`,
+        `inject_attack_modified_${field}`,
+        `inject_attack_delta_${field}`
+    );
+});
+
+const playbackVehiclePrefixSet = new Set(playbackVehiclePrefixes);
 
 const createEmptyPlotData = (): PlotData => ({
     velocity: [],
@@ -150,6 +240,13 @@ const attackTargetLabel = (interval: any): string => {
     return dataType || 'attack';
 };
 
+const attackAttackerLabel = (interval: any): string => {
+    const attacker = interval.attacker_id ?? interval.attackerId;
+    if (attacker === undefined || attacker === null || attacker === '') return 'V?';
+    const attackerText = String(attacker).trim();
+    return attackerText.toUpperCase().startsWith('V') ? attackerText : `V${attackerText}`;
+};
+
 const attackIntervalLabel = (interval: any): string => {
     const type = String(interval.type ?? interval.attack_type ?? 'attack');
     const modification = String(interval.modification ?? interval.modification_type ?? '');
@@ -169,10 +266,13 @@ const relativeAttackTime = (value: unknown, firstTime: number | null, fallback: 
 const extractVehicleIds = (headers: string[]): number[] => {
     const ids = new Set<number>();
     headers.forEach(header => {
-        const match = header.match(/^(?:vehicle_present|est_x|est_y|est_theta|est_v|est_a|trust|gtrust|w_neighbor|w0_final|w_self_final|w_neighbor_sum_final)_(\d+)$/);
-        if (match) {
-            ids.add(Number(match[1]));
-            return;
+        const vehicleMatch = header.match(/_(\d+)$/);
+        if (vehicleMatch) {
+            const prefix = header.slice(0, vehicleMatch.index);
+            if (playbackVehiclePrefixSet.has(prefix)) {
+                ids.add(Number(vehicleMatch[1]));
+                return;
+            }
         }
 
         const sourceWeightMatch = header.match(/^w_neighbor_from_v(\d+)_to_(\d+)$/);
@@ -191,51 +291,59 @@ const buildPlaybackColumns = (vehicleIds: number[]): string[] => {
         'total_neighbor_weight',
         'trusted_neighbor_count',
         'active_vehicle_count',
+        'mean_direct_trust',
+        'mean_generalized_trust',
+        'mean_gamma_host',
+        'mean_gamma_local_peer',
+        'mean_gamma_self',
+        'prediction_mode_count',
+        'rel_meas_used_global_count',
+        'yolo_rel_meas_used_global_count',
+        'host_steering',
+        'host_throttle',
+        'ctrl_leader_id',
+        'ctrl_leader_trust',
+        'ctrl_policy_code',
+        'ctrl_hold_stop',
+        'ctrl_alpha',
+        'ctrl_u_final',
+        'ctrl_delta_final',
+        'ctrl_u_raw',
+        'ctrl_delta_raw',
+        'ctrl_u_cacc',
+        'ctrl_u_sensor',
+        'ctrl_sensor_gap',
+        'ctrl_along_track_gap',
+        'ctrl_distance_to_leader',
+        'ctrl_velocity_difference',
+        'ctrl_reverse_follow_active',
+        'ctrl_reverse_follow_blocked',
+        'ctrl_multi_predecessor_count',
+        'ctrl_multi_predecessor_weight_sum',
+        'ctrl_multi_predecessor_spacing_term',
+        'ctrl_multi_predecessor_velocity_term',
+        'ctrl_multi_predecessor_acceleration_term',
         'is_turning',
         'v2v_attack_enabled',
         'v2v_attack_active',
+        'v2v_attack_clock_s',
+        'v2v_attack_scenario_count',
         'v2v_attack_active_count',
+        'v2v_attack_enable_time_s',
+        'v2v_attack_disable_time_s',
+        'v2v_attack_last_event_time_s',
+        'v2v_attack_start_s',
+        'v2v_attack_end_s',
         'rollback_enabled',
         'rollback_triggered',
         'rollback_total',
         'rollback_active_count',
-        'rollback_newly_flagged_count'
+        'rollback_newly_flagged_count',
+        'rollback_event_time_s'
     ]);
 
-    const prefixes = [
-        'vehicle_present',
-        'trust',
-        'gtrust',
-        'local_trust',
-        'global_trust',
-        'w_neighbor',
-        'w0_final',
-        'w_self_final',
-        'w_neighbor_sum_final',
-        'pred_mode',
-        'est_x',
-        'est_y',
-        'est_v',
-        'est_a',
-        'est_theta',
-        'v_score',
-        'd_score',
-        'a_score',
-        'h_score',
-        'b_score',
-        'q_factor',
-        'gamma_host',
-        'gamma_local_peer',
-        'gamma_self',
-        'flag_attack',
-        'flag_local',
-        'flag_global',
-        'rel_meas_used_global',
-        'yolo_rel_meas_used_global'
-    ];
-
     vehicleIds.forEach(vehicleId => {
-        prefixes.forEach(prefix => columns.add(`${prefix}_${vehicleId}`));
+        playbackVehiclePrefixes.forEach(prefix => columns.add(`${prefix}_${vehicleId}`));
         vehicleIds.forEach(sourceId => {
             columns.add(`w_neighbor_from_v${sourceId}_to_${vehicleId}`);
         });
@@ -448,7 +556,8 @@ const parseTrustPlaybackCsv = (csvText: string, fileName: string): PlaybackLog =
                 endTime: Math.min(Math.max(safeEndTime, startTime), Math.max(lastTime, startTime)),
                 label: attackIntervalLabel(interval),
                 type: String(interval.type ?? interval.attack_type ?? 'attack'),
-                targetLabel: attackTargetLabel(interval)
+                targetLabel: attackTargetLabel(interval),
+                attackerLabel: attackAttackerLabel(interval)
             };
         })
         .filter(interval => interval.endTime > interval.startTime);
@@ -517,6 +626,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
     const [playbackLog, setPlaybackLog] = useState<PlaybackLog | null>(null);
     const [playbackTime, setPlaybackTime] = useState(0);
     const [playbackSpeed, setPlaybackSpeed] = useState(1);
+    const [playbackLayer, setPlaybackLayer] = useState<PlaybackLayer>('trust');
     const [isPlaybackPlaying, setIsPlaybackPlaying] = useState(false);
     const [playbackError, setPlaybackError] = useState<string | null>(null);
     const maxDataPoints = 1000; // 20 seconds at 50Hz (Safety margin over 15s window)
@@ -793,7 +903,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         } else if (mode === 'playback' && playbackLog) {
             renderPlaybackDashboard(ctx, width, height, playbackLog, startTime, now);
         }
-    }, [localData, fleetData, selectedVehicleId, mode, playbackLog, playbackTime]);
+    }, [localData, fleetData, selectedVehicleId, mode, playbackLog, playbackTime, playbackLayer]);
 
     const renderLocalPlot = (
         ctx: CanvasRenderingContext2D,
@@ -885,6 +995,200 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(0, 0, width, height);
+
+        const focus = log.focusVehicleId;
+        const vehicleLines = (prefix: string, stepped = false, width = 1.4): PlaybackLine[] =>
+            log.vehicleIds.map((vehicleId, index) => ({
+                key: `${prefix}_${vehicleId}`,
+                label: `V${vehicleId}`,
+                color: playbackColors[index % playbackColors.length],
+                stepped,
+                width
+            }));
+
+        const attackValueLines = (field: string): PlaybackLine[] => [
+            { key: `inject_attack_original_${field}_${focus}`, label: 'original', color: '#94a3b8', dashed: true, width: 1.1 },
+            { key: `inject_attack_modified_${field}_${focus}`, label: 'injected', color: '#ef4444', width: 1.6 },
+            { key: `inject_attack_delta_${field}_${focus}`, label: 'delta', color: '#f59e0b', dashed: true, width: 1.2 }
+        ];
+
+        if (playbackLayer === 'motion') {
+            const xLines = vehicleLines('est_x');
+            const yLines = vehicleLines('est_y');
+            const velocityLines = vehicleLines('est_v');
+            const accelerationLines = vehicleLines('est_a');
+            const headingLines = vehicleLines('est_theta');
+            const predictionModeLines = vehicleLines('pred_mode', true, 1.3);
+            const rollbackLines: PlaybackLine[] = [
+                { key: 'rollback_triggered', label: 'rollback triggered', color: '#ef4444', stepped: true, width: 1.6 },
+                { key: 'rollback_active_count', label: 'rollback active count', color: '#f97316', stepped: true },
+                { key: 'v2v_attack_active', label: 'V2V attack', color: '#8b5cf6', stepped: true }
+            ];
+
+            drawPlaybackXYPlot(ctx, log, { x: colX(0), y: rowY(0), w: plotW, h: plotH }, startTime, endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(0), w: plotW, h: plotH }, xLines,
+                'Estimated X - All Vehicles', 'x [m]', '', startTime, endTime, boundsForLines(log, xLines, { min: -1, max: 1 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(0), w: plotW, h: plotH }, yLines,
+                'Estimated Y - All Vehicles', 'y [m]', '', startTime, endTime, boundsForLines(log, yLines, { min: -1, max: 1 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(1), w: plotW, h: plotH }, velocityLines,
+                'Estimated Velocity - All Vehicles', 'v [m/s]', '', startTime, endTime, boundsForLines(log, velocityLines, { min: 0, max: 1.5 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(1), w: plotW, h: plotH }, accelerationLines,
+                'Estimated Acceleration - All Vehicles', 'a [m/s^2]', '', startTime, endTime, boundsForLines(log, accelerationLines, { min: -2, max: 2 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(1), w: plotW, h: plotH }, headingLines,
+                'Estimated Heading - All Vehicles', 'theta [rad]', '', startTime, endTime, boundsForLines(log, headingLines, { min: -3.2, max: 3.2 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(2), w: plotW, h: plotH }, predictionModeLines,
+                'Prediction Mode - All Vehicles', 'state', 'Time [s]', startTime, endTime, boundsForLines(log, predictionModeLines, { min: 0, max: 1 }), endTime, 0.5);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(2), w: plotW, h: plotH }, rollbackLines,
+                'Rollback / Attack Activity', 'state/count', 'Time [s]', startTime, endTime, boundsForLines(log, rollbackLines, { min: 0, max: 1 }), endTime);
+            drawPlaybackAttackTimeline(ctx, log, { x: colX(2), y: rowY(2), w: plotW, h: plotH }, startTime, endTime);
+            return;
+        }
+
+        if (playbackLayer === 'prediction') {
+            const postpredXLines = vehicleLines('postpred_x');
+            const postpredYLines = vehicleLines('postpred_y');
+            const postpredVelocityLines = vehicleLines('postpred_v');
+            const postpredAccelerationLines = vehicleLines('postpred_a');
+            const postpredHeadingLines = vehicleLines('postpred_theta');
+            const predictionModeLines: PlaybackLine[] = [
+                ...vehicleLines('pred_mode', true, 1.3),
+                { key: 'prediction_mode_count', label: 'prediction count', color: '#f59e0b', stepped: true, width: 1.5 },
+                { key: 'v2v_attack_active', label: 'V2V attack', color: '#8b5cf6', stepped: true }
+            ];
+            const rollbackLines: PlaybackLine[] = [
+                { key: 'rollback_enabled', label: 'enabled', color: '#94a3b8', stepped: true },
+                { key: 'rollback_triggered', label: 'triggered', color: '#ef4444', stepped: true, width: 1.6 },
+                { key: 'rollback_active_count', label: 'active count', color: '#f97316', stepped: true },
+                { key: 'rollback_newly_flagged_count', label: 'new flags', color: '#ec4899', stepped: true },
+                { key: 'rollback_total', label: 'total', color: '#22c55e', stepped: true }
+            ];
+
+            drawPlaybackXYPlot(ctx, log, { x: colX(0), y: rowY(0), w: plotW, h: plotH }, startTime, endTime, 'Post-Prediction XY - All Vehicles', 'postpred_x', 'postpred_y');
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(0), w: plotW, h: plotH }, postpredXLines,
+                'Post-Prediction X - All Vehicles', 'x [m]', '', startTime, endTime, boundsForLines(log, postpredXLines, { min: -1, max: 1 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(0), w: plotW, h: plotH }, postpredYLines,
+                'Post-Prediction Y - All Vehicles', 'y [m]', '', startTime, endTime, boundsForLines(log, postpredYLines, { min: -1, max: 1 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(1), w: plotW, h: plotH }, postpredVelocityLines,
+                'Post-Prediction Velocity - All Vehicles', 'v [m/s]', '', startTime, endTime, boundsForLines(log, postpredVelocityLines, { min: 0, max: 1.5 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(1), w: plotW, h: plotH }, postpredAccelerationLines,
+                'Post-Prediction Acceleration - All Vehicles', 'a [m/s^2]', '', startTime, endTime, boundsForLines(log, postpredAccelerationLines, { min: -2, max: 2 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(1), w: plotW, h: plotH }, postpredHeadingLines,
+                'Post-Prediction Heading - All Vehicles', 'theta [rad]', '', startTime, endTime, boundsForLines(log, postpredHeadingLines, { min: -3.2, max: 3.2 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(2), w: plotW, h: plotH }, predictionModeLines,
+                'Prediction Mode - All Vehicles', 'state/count', 'Time [s]', startTime, endTime, boundsForLines(log, predictionModeLines, { min: 0, max: 1 }), endTime, 0.5);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(2), w: plotW, h: plotH }, rollbackLines,
+                'Rollback Status', 'state/count', 'Time [s]', startTime, endTime, boundsForLines(log, rollbackLines, { min: 0, max: 1 }), endTime);
+            drawPlaybackAttackTimeline(ctx, log, { x: colX(2), y: rowY(2), w: plotW, h: plotH }, startTime, endTime);
+            return;
+        }
+
+        if (playbackLayer === 'controller') {
+            const throttleLines: PlaybackLine[] = [
+                { key: 'ctrl_u_final', label: 'final u', color: '#22c55e', width: 1.7 },
+                { key: 'ctrl_u_raw', label: 'raw u', color: '#f59e0b', dashed: true },
+                { key: 'ctrl_u_cacc', label: 'CACC u', color: '#3b82f6' },
+                { key: 'ctrl_u_sensor', label: 'sensor ACC u', color: '#ef4444' },
+                { key: 'host_throttle', label: 'sent throttle', color: '#e2e8f0', dashed: true }
+            ];
+            const steeringLines: PlaybackLine[] = [
+                { key: 'ctrl_delta_final', label: 'final delta', color: '#22c55e', width: 1.7 },
+                { key: 'ctrl_delta_raw', label: 'raw delta', color: '#f59e0b', dashed: true },
+                { key: 'host_steering', label: 'sent steering', color: '#e2e8f0', dashed: true }
+            ];
+            const fusionLines: PlaybackLine[] = [
+                { key: 'ctrl_alpha', label: 'fusion alpha', color: '#3b82f6', width: 1.6 },
+                { key: 'ctrl_leader_trust', label: 'leader trust', color: '#22c55e' },
+                { key: 'ctrl_hold_stop', label: 'hold stop', color: '#ef4444', stepped: true },
+                { key: 'v2v_attack_active', label: 'V2V attack', color: '#8b5cf6', stepped: true }
+            ];
+            const policyLines: PlaybackLine[] = [
+                { key: 'ctrl_policy_code', label: 'policy code', color: '#f59e0b', stepped: true, width: 1.7 },
+                { key: 'ctrl_reverse_follow_active', label: 'reverse active', color: '#06b6d4', stepped: true },
+                { key: 'ctrl_reverse_follow_blocked', label: 'reverse blocked', color: '#ef4444', stepped: true }
+            ];
+            const gapLines: PlaybackLine[] = [
+                { key: 'ctrl_distance_to_leader', label: 'distance', color: '#22c55e' },
+                { key: 'ctrl_along_track_gap', label: 'along-track', color: '#3b82f6' },
+                { key: 'ctrl_sensor_gap', label: 'sensor gap', color: '#f59e0b' }
+            ];
+            const relativeLines: PlaybackLine[] = [
+                { key: 'ctrl_velocity_difference', label: 'leader-follower v', color: '#06b6d4' },
+                { key: `est_v_${focus}`, label: `estimated v V${focus}`, color: '#22c55e' }
+            ];
+            const multiPredecessorLines: PlaybackLine[] = [
+                { key: 'ctrl_multi_predecessor_count', label: 'predecessor count', color: '#f59e0b', stepped: true },
+                { key: 'ctrl_multi_predecessor_weight_sum', label: 'weight sum', color: '#3b82f6' },
+                { key: 'ctrl_multi_predecessor_spacing_term', label: 'spacing term', color: '#22c55e' },
+                { key: 'ctrl_multi_predecessor_velocity_term', label: 'velocity term', color: '#06b6d4' },
+                { key: 'ctrl_multi_predecessor_acceleration_term', label: 'accel term', color: '#ef4444' }
+            ];
+            const stateLines: PlaybackLine[] = [
+                { key: 'rollback_triggered', label: 'rollback triggered', color: '#ef4444', stepped: true, width: 1.6 },
+                { key: 'rollback_active_count', label: 'rollback active count', color: '#f97316', stepped: true },
+                { key: `flag_attack_${focus}`, label: `attack flag V${focus}`, color: '#ec4899', stepped: true },
+                { key: `pred_mode_${focus}`, label: `prediction V${focus}`, color: '#22c55e', stepped: true }
+            ];
+
+            drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(0), w: plotW, h: plotH }, throttleLines,
+                'Longitudinal Command Fusion', 'u / throttle', '', startTime, endTime, boundsForLines(log, throttleLines, { min: -0.2, max: 0.4 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(0), w: plotW, h: plotH }, steeringLines,
+                'Steering Command', 'delta [rad]', '', startTime, endTime, boundsForLines(log, steeringLines, { min: -0.7, max: 0.7 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(0), w: plotW, h: plotH }, fusionLines,
+                'Fusion Trust / Attack State', 'value', '', startTime, endTime, boundsForLines(log, fusionLines, { min: 0, max: 1 }), endTime, 0.5);
+            drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(1), w: plotW, h: plotH }, policyLines,
+                'Policy Code (3 CACC, 4 blend, 5 sensor, 6 stop, 15 no V2V, 17 no controller)', 'code/state', '', startTime, endTime, boundsForLines(log, policyLines, { min: 0, max: 17 }), endTime, 0.5);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(1), w: plotW, h: plotH }, gapLines,
+                'Leader Gap Signals', 'm', '', startTime, endTime, boundsForLines(log, gapLines, { min: 0, max: 2 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(1), w: plotW, h: plotH }, relativeLines,
+                `Velocity Context V${focus}`, 'm/s', '', startTime, endTime, boundsForLines(log, relativeLines, { min: -1, max: 1 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(2), w: plotW, h: plotH }, multiPredecessorLines,
+                'Multi-Predecessor CACC Terms', 'value', 'Time [s]', startTime, endTime, boundsForLines(log, multiPredecessorLines, { min: -1, max: 1 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(2), w: plotW, h: plotH }, stateLines,
+                'Trust Gate / Rollback State', 'state/count', 'Time [s]', startTime, endTime, boundsForLines(log, stateLines, { min: 0, max: 1 }), endTime, 0.5);
+            drawPlaybackAttackTimeline(ctx, log, { x: colX(2), y: rowY(2), w: plotW, h: plotH }, startTime, endTime);
+            return;
+        }
+
+        if (playbackLayer === 'attack') {
+            const attackStatusLines: PlaybackLine[] = [
+                { key: 'v2v_attack_enabled', label: 'module enabled', color: '#22c55e', stepped: true },
+                { key: 'v2v_attack_active', label: 'attack active', color: '#ef4444', stepped: true, width: 1.6 },
+                { key: 'v2v_attack_active_count', label: 'active count', color: '#f97316', stepped: true },
+                { key: 'v2v_attack_scenario_count', label: 'scenario count', color: '#8b5cf6', stepped: true }
+            ];
+            const attackFlagLines: PlaybackLine[] = [
+                { key: `inject_attack_active_${focus}`, label: `inject V${focus}`, color: '#ef4444', stepped: true, width: 1.6 },
+                { key: `flag_attack_${focus}`, label: 'target attack', color: '#ec4899', stepped: true },
+                { key: `flag_local_${focus}`, label: 'local bad', color: '#f97316', stepped: true },
+                { key: `flag_global_${focus}`, label: 'global bad', color: '#3b82f6', stepped: true },
+                { key: `pred_mode_${focus}`, label: 'prediction', color: '#22c55e', stepped: true }
+            ];
+            const xAttackLines = attackValueLines('x');
+            const yAttackLines = attackValueLines('y');
+            const velocityAttackLines = attackValueLines('velocity');
+            const accelerationAttackLines = attackValueLines('acceleration');
+            const thetaAttackLines = attackValueLines('theta');
+            const confidenceAttackLines = attackValueLines('confidence');
+
+            drawPlaybackAttackTimeline(ctx, log, { x: colX(0), y: rowY(0), w: plotW, h: plotH }, startTime, endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(0), w: plotW, h: plotH }, attackStatusLines,
+                'Attack Status Signals', 'state/count', '', startTime, endTime, boundsForLines(log, attackStatusLines, { min: 0, max: 1 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(0), w: plotW, h: plotH }, attackFlagLines,
+                `Focus Attack Flags V${focus}`, 'state', '', startTime, endTime, boundsForLines(log, attackFlagLines, { min: 0, max: 1 }), endTime, 0.5);
+            drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(1), w: plotW, h: plotH }, xAttackLines,
+                `Injected X V${focus}`, 'x [m]', '', startTime, endTime, boundsForLines(log, xAttackLines, { min: -1, max: 1 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(1), w: plotW, h: plotH }, yAttackLines,
+                `Injected Y V${focus}`, 'y [m]', '', startTime, endTime, boundsForLines(log, yAttackLines, { min: -1, max: 1 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(1), w: plotW, h: plotH }, velocityAttackLines,
+                `Injected Velocity V${focus}`, 'v [m/s]', '', startTime, endTime, boundsForLines(log, velocityAttackLines, { min: 0, max: 1.5 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(2), w: plotW, h: plotH }, accelerationAttackLines,
+                `Injected Acceleration V${focus}`, 'a [m/s^2]', 'Time [s]', startTime, endTime, boundsForLines(log, accelerationAttackLines, { min: -2, max: 2 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(2), w: plotW, h: plotH }, thetaAttackLines,
+                `Injected Heading V${focus}`, 'theta [rad]', 'Time [s]', startTime, endTime, boundsForLines(log, thetaAttackLines, { min: -3.2, max: 3.2 }), endTime);
+            drawPlaybackLinePlot(ctx, log, { x: colX(2), y: rowY(2), w: plotW, h: plotH }, confidenceAttackLines,
+                `Injected Confidence V${focus}`, 'confidence', 'Time [s]', startTime, endTime, boundsForLines(log, confidenceAttackLines, { min: 0, max: 1 }), endTime);
+            return;
+        }
 
         const trustLines: PlaybackLine[] = log.vehicleIds.map((vehicleId, index) => ({
             key: `trust_${vehicleId}`,
@@ -1291,26 +1595,29 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         log: PlaybackLog,
         rect: PlotRect,
         startTime: number,
-        endTime: number
+        endTime: number,
+        title = 'Estimated XY Trajectory',
+        xPrefix = 'est_x',
+        yPrefix = 'est_y'
     ) => {
         const xyLines = log.vehicleIds.map((vehicleId, index) => ({
-            key: `est_x_${vehicleId}`,
+            key: `${xPrefix}_${vehicleId}`,
             label: `V${vehicleId}`,
             color: playbackColors[index % playbackColors.length]
         }));
         const headerHeight = xyLines.length > 4 ? 42 : xyLines.length > 0 ? 30 : 18;
         const headerRect = { x: rect.x, y: rect.y, w: rect.w, h: headerHeight };
         const plotRect = { x: rect.x, y: rect.y + headerHeight, w: rect.w, h: Math.max(40, rect.h - headerHeight) };
-        const xBounds = finiteBounds(log.vehicleIds.map(vehicleId => getPlaybackSeries(log, `est_x_${vehicleId}`)), { min: -1, max: 1 });
-        const yBounds = finiteBounds(log.vehicleIds.map(vehicleId => getPlaybackSeries(log, `est_y_${vehicleId}`)), { min: -1, max: 1 });
+        const xBounds = finiteBounds(log.vehicleIds.map(vehicleId => getPlaybackSeries(log, `${xPrefix}_${vehicleId}`)), { min: -1, max: 1 });
+        const yBounds = finiteBounds(log.vehicleIds.map(vehicleId => getPlaybackSeries(log, `${yPrefix}_${vehicleId}`)), { min: -1, max: 1 });
 
-        drawPlaybackPanelHeader(ctx, headerRect, 'Estimated XY Trajectory');
+        drawPlaybackPanelHeader(ctx, headerRect, title);
         drawPlaybackLegend(ctx, log, headerRect, xyLines);
         drawPlaybackPlotFrame(ctx, plotRect, '', 'Y [m]', 'X [m]', xBounds.min, xBounds.max, yBounds);
 
         log.vehicleIds.forEach((vehicleId, index) => {
-            const xPoints = visibleSeries(getPlaybackSeries(log, `est_x_${vehicleId}`), startTime, endTime);
-            const yPoints = visibleSeries(getPlaybackSeries(log, `est_y_${vehicleId}`), startTime, endTime);
+            const xPoints = visibleSeries(getPlaybackSeries(log, `${xPrefix}_${vehicleId}`), startTime, endTime);
+            const yPoints = visibleSeries(getPlaybackSeries(log, `${yPrefix}_${vehicleId}`), startTime, endTime);
             const count = Math.min(xPoints.length, yPoints.length);
             if (count === 0) return;
 
@@ -1326,8 +1633,8 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             }
             ctx.stroke();
 
-            const currentX = sampleSeries(getPlaybackSeries(log, `est_x_${vehicleId}`), endTime);
-            const currentY = sampleSeries(getPlaybackSeries(log, `est_y_${vehicleId}`), endTime);
+            const currentX = sampleSeries(getPlaybackSeries(log, `${xPrefix}_${vehicleId}`), endTime);
+            const currentY = sampleSeries(getPlaybackSeries(log, `${yPrefix}_${vehicleId}`), endTime);
             if (currentX !== null && currentY !== null) {
                 const marker = mapPlaybackPoint(plotRect, currentX, currentY, xBounds.min, xBounds.max, yBounds);
                 ctx.fillStyle = color;
@@ -1362,17 +1669,24 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         if (log.attackIntervals.length === 0 && activeSeries.length > 0) {
             laneLabels.push('V2V active');
         }
+        const attackBarLabel = (interval: AttackInterval) =>
+            [interval.attackerLabel, interval.label].filter(Boolean).join(' - ');
 
-        const labelPad = Math.min(82, Math.max(58, rect.w * 0.32));
-        const dataRect = {
-            x: plotRect.x + labelPad,
-            y: plotRect.y,
-            w: Math.max(20, plotRect.w - labelPad - 4),
-            h: plotRect.h
+        ctx.font = '8px Inter, sans-serif';
+        const ellipsize = (text: string, maxWidth: number) => {
+            if (maxWidth <= 0) return '';
+            if (ctx.measureText(text).width <= maxWidth) return text;
+            let next = text;
+            while (next.length > 3 && ctx.measureText(`${next}...`).width > maxWidth) {
+                next = next.slice(0, -1);
+            }
+            return next.length > 3 ? `${next}...` : '';
         };
-        const laneHeight = plotRect.h / Math.max(1, laneLabels.length);
+        const dataRect = plotRect;
+        const laneLabelMaxWidth = Math.min(132, Math.max(72, dataRect.w * 0.34));
+        const laneHeight = dataRect.h / Math.max(1, laneLabels.length);
         const barHeight = Math.min(16, laneHeight * 0.56);
-        const yForLane = (lane: number) => plotRect.y + laneHeight * (lane + 0.5);
+        const yForLane = (lane: number) => dataRect.y + laneHeight * (lane + 0.5);
         const xForTime = (time: number) => {
             const span = Math.max(1e-6, endTime - startTime);
             return dataRect.x + ((time - startTime) / span) * dataRect.w;
@@ -1382,14 +1696,6 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             const clippedEnd = Math.max(startTime, Math.min(endTime, end));
             if (clippedEnd <= clippedStart) return null;
             return { start: clippedStart, end: clippedEnd };
-        };
-        const ellipsize = (text: string, maxWidth: number) => {
-            if (ctx.measureText(text).width <= maxWidth) return text;
-            let next = text;
-            while (next.length > 3 && ctx.measureText(`${next}...`).width > maxWidth) {
-                next = next.slice(0, -1);
-            }
-            return next.length > 3 ? `${next}...` : '';
         };
         const flagSpans = (series: DataPoint[]) => {
             const spans: Array<{ start: number; end: number }> = [];
@@ -1410,7 +1716,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         };
 
         drawPlaybackPanelHeader(ctx, headerRect, 'Attack Timeline');
-        drawPlaybackPlotFrame(ctx, plotRect, '', '', 'Time [s]', startTime, endTime, {
+        drawPlaybackPlotFrame(ctx, dataRect, '', '', 'Time [s]', startTime, endTime, {
             min: 0,
             max: Math.max(1, laneLabels.length)
         });
@@ -1419,22 +1725,6 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         ctx.beginPath();
         ctx.rect(plotRect.x, plotRect.y, plotRect.w, plotRect.h);
         ctx.clip();
-
-        ctx.strokeStyle = '#334155';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(dataRect.x - 8, plotRect.y);
-        ctx.lineTo(dataRect.x - 8, plotRect.y + plotRect.h);
-        ctx.stroke();
-
-        ctx.font = '8px Inter, sans-serif';
-        ctx.textBaseline = 'middle';
-        laneLabels.forEach((label, lane) => {
-            const y = yForLane(lane);
-            ctx.fillStyle = '#94a3b8';
-            ctx.textAlign = 'right';
-            ctx.fillText(label, dataRect.x - 12, y);
-        });
 
         flagSpans(getPlaybackSeries(log, 'v2v_attack_enabled')).forEach(span => {
             const y = yForLane(0);
@@ -1488,7 +1778,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
                 lane,
                 interval.startTime,
                 interval.endTime,
-                interval.label,
+                attackBarLabel(interval),
                 colorForType(interval.type)
             );
         });
@@ -1507,15 +1797,15 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             ctx.lineWidth = 1.2;
             ctx.setLineDash([4, 3]);
             ctx.beginPath();
-            ctx.moveTo(x, plotRect.y);
-            ctx.lineTo(x, plotRect.y + plotRect.h);
+            ctx.moveTo(x, dataRect.y);
+            ctx.lineTo(x, dataRect.y + dataRect.h);
             ctx.stroke();
             ctx.setLineDash([]);
             ctx.fillStyle = isEnable ? '#86efac' : '#fca5a5';
             ctx.font = '8px Inter, sans-serif';
             ctx.textAlign = 'left';
             ctx.save();
-            ctx.translate(x + 3, plotRect.y + 5);
+            ctx.translate(x + 3, dataRect.y + 5);
             ctx.rotate(-Math.PI / 2);
             ctx.fillText(event.event, 0, 0);
             ctx.restore();
@@ -1526,15 +1816,24 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             ctx.font = '10px Inter, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('No attack intervals', dataRect.x + dataRect.w / 2, plotRect.y + plotRect.h / 2);
+            ctx.fillText('No attack intervals', dataRect.x + dataRect.w / 2, dataRect.y + dataRect.h / 2);
         }
+
+        ctx.font = '8px Inter, sans-serif';
+        ctx.textBaseline = 'middle';
+        laneLabels.forEach((label, lane) => {
+            const y = yForLane(lane);
+            ctx.fillStyle = '#94a3b8';
+            ctx.textAlign = 'left';
+            ctx.fillText(ellipsize(label, laneLabelMaxWidth), dataRect.x + 10, y);
+        });
 
         const playheadX = xForTime(endTime);
         ctx.strokeStyle = '#cbd5e1';
         ctx.setLineDash([2, 3]);
         ctx.beginPath();
-        ctx.moveTo(playheadX, plotRect.y);
-        ctx.lineTo(playheadX, plotRect.y + plotRect.h);
+        ctx.moveTo(playheadX, dataRect.y);
+        ctx.lineTo(playheadX, dataRect.y + dataRect.h);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
@@ -2208,6 +2507,29 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
                                 <option key={speed} value={speed}>{speed}x</option>
                             ))}
                         </select>
+                        <div
+                            className="flex items-center gap-1 rounded border border-slate-700 bg-slate-950/60 p-1"
+                            title="Replay plot layer"
+                        >
+                            <Layers size={13} className="text-slate-400 shrink-0" />
+                            {playbackLayerOptions.map(option => (
+                                <button
+                                    key={option.id}
+                                    type="button"
+                                    onClick={() => setPlaybackLayer(option.id)}
+                                    disabled={!playbackLog}
+                                    className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
+                                        playbackLayer === option.id
+                                            ? 'bg-indigo-600 text-white'
+                                            : playbackLog
+                                                ? 'text-slate-300 hover:bg-slate-800'
+                                                : 'text-slate-600 cursor-not-allowed'
+                                    }`}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     <div className="flex items-center gap-3 flex-1 min-w-[200px]">

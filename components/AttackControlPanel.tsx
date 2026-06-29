@@ -9,6 +9,7 @@ interface AttackControlPanelProps {
 }
 
 const ATTACK_TYPES = [
+    'Mix_test',
     'Bogus',
     'DoS',
     'Velocity',
@@ -17,15 +18,48 @@ const ATTACK_TYPES = [
     'Heading'
 ];
 
+const CASE_LIMITS: Record<string, number> = {
+    Mix_test: 5,
+    Bogus: 10,
+    DoS: 3,
+    Velocity: 3,
+    Position: 3,
+    Acceleration: 3,
+    Heading: 3
+};
+
+const parseVehicleId = (id: string): number => {
+    if (id === 'all') return -1;
+    const match = id.match(/\d+/);
+    return match ? Number(match[0]) : Number(id);
+};
+
 const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClose }) => {
-    const [attackType, setAttackType] = useState<string>('Bogus');
+    const [attackType, setAttackType] = useState<string>('Mix_test');
     const [caseNum, setCaseNum] = useState<number>(1);
     const [attackerId, setAttackerId] = useState<string>('');
     const [victims, setVictims] = useState<string[]>([]);
     const [dataType, setDataType] = useState<string>('local');
     const [status, setStatus] = useState<'idle' | 'active'>('idle');
 
+    const maxCaseNum = CASE_LIMITS[attackType] ?? 10;
     const availableVictims = vehicles.filter(v => v.id !== attackerId);
+
+    const handleCaseKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (status === 'active' || maxCaseNum > 9) return;
+
+        const digit =
+            event.code.startsWith('Numpad') && event.code.length === 7
+                ? Number(event.code.slice(-1))
+                : /^[0-9]$/.test(event.key)
+                    ? Number(event.key)
+                    : NaN;
+
+        if (Number.isInteger(digit) && digit >= 1 && digit <= maxCaseNum) {
+            event.preventDefault();
+            setCaseNum(digit);
+        }
+    };
 
     const toggleVictim = (id: string) => {
         setVictims(prev =>
@@ -35,31 +69,26 @@ const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClo
 
     const handleTrigger = () => {
         if (!attackerId) return;
-        
-        const attackerIdNum = attackerId === 'all'
-            ? -1
-            : (parseInt(attackerId.replace(/\\D/g, '')) || parseInt(attackerId));
-        const victimIdsNum = victims.map(v => parseInt(v.replace(/\\D/g, '')) || parseInt(v));
+
+        const attackerIdNum = parseVehicleId(attackerId);
+        const victimIdsNum = victims
+            .map(parseVehicleId)
+            .filter(Number.isFinite);
 
         bridgeService.triggerAttack(
-            attackerId, // Target the selected attacker vehicle(s) to enact the attack scenario
+            'all',
             attackType,
             caseNum,
             attackerIdNum,
             victimIdsNum,
             dataType
         );
-        
+
         setStatus('active');
     };
 
     const handleDisable = () => {
-        // Send disable command to everyone to be safe, or just the attacker
-        if (attackerId) {
-            bridgeService.disableAttack(attackerId);
-        } else {
-            bridgeService.disableAttack('all');
-        }
+        bridgeService.disableAttack('all', { restoreTrust: true });
         setStatus('idle');
     };
 
@@ -102,7 +131,11 @@ const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClo
                         <label className="text-xs font-semibold text-slate-400 block mb-1">Attack Type</label>
                         <select
                             value={attackType}
-                            onChange={(e) => setAttackType(e.target.value)}
+                            onChange={(e) => {
+                                const nextAttackType = e.target.value;
+                                setAttackType(nextAttackType);
+                                setCaseNum(prev => Math.min(prev, CASE_LIMITS[nextAttackType] ?? 10));
+                            }}
                             className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-sm text-white focus:border-red-500 outline-none"
                             disabled={status === 'active'}
                         >
@@ -118,9 +151,13 @@ const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClo
                         <input
                             type="number"
                             min="1"
-                            max="10"
+                            max={maxCaseNum}
                             value={caseNum}
-                            onChange={(e) => setCaseNum(parseInt(e.target.value))}
+                            onKeyDown={handleCaseKeyDown}
+                            onChange={(e) => {
+                                const value = parseInt(e.target.value) || 1;
+                                setCaseNum(Math.min(Math.max(value, 1), maxCaseNum));
+                            }}
                             className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-sm text-white focus:border-red-500 outline-none"
                             disabled={status === 'active'}
                         />

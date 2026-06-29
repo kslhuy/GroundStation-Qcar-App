@@ -348,8 +348,10 @@ class WebSocketBridgeService {
         });
     }
 
-    disableAttack(target: string | 'all'): boolean {
-        return this.sendCommand('disable_attack', target);
+    disableAttack(target: string | 'all', options: { restoreTrust?: boolean } = {}): boolean {
+        return this.sendCommand('disable_attack', target, {
+            restore_trust: Boolean(options.restoreTrust)
+        });
     }
 
     startLocalSensorAttack(target: string, config: Record<string, any>): boolean {
