@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Vehicle } from '../types';
-import { Activity, TrendingUp, Gauge, Layers, MapPin, Upload, Play, Pause, RotateCcw } from 'lucide-react';
+import { Activity, TrendingUp, Gauge, Layers, MapPin, Upload, Play, Pause, RotateCcw, Target } from 'lucide-react';
 
 interface RealTimeDataPlotProps {
     vehicles: Vehicle[];
@@ -584,6 +584,46 @@ const parseTrustPlaybackCsv = (csvText: string, fileName: string): PlaybackLog =
     };
 };
 
+const getPlaybackFocusVehicleIds = (log: PlaybackLog): number[] => {
+    const defaultCandidates = log.hostVehicleId === null
+        ? log.vehicleIds
+        : log.vehicleIds.filter(vehicleId => vehicleId !== log.hostVehicleId);
+    const candidates = defaultCandidates.length > 0 ? defaultCandidates : log.vehicleIds;
+
+    const hasSeries = (key: string) => (log.series.get(key)?.length ?? 0) > 0;
+    const focusCandidates = candidates.filter(vehicleId => {
+        const focusKeys = [
+            `trust_${vehicleId}`,
+            `gtrust_${vehicleId}`,
+            `local_trust_${vehicleId}`,
+            `global_trust_${vehicleId}`,
+            `w_neighbor_${vehicleId}`,
+            `w0_final_${vehicleId}`,
+            `w_self_final_${vehicleId}`,
+            `w_neighbor_sum_final_${vehicleId}`,
+            `v_score_${vehicleId}`,
+            `d_score_${vehicleId}`,
+            `a_score_${vehicleId}`,
+            `h_score_${vehicleId}`,
+            `b_score_${vehicleId}`,
+            `q_factor_${vehicleId}`,
+            `gamma_host_${vehicleId}`,
+            `gamma_local_peer_${vehicleId}`,
+            `gamma_self_${vehicleId}`,
+            `pred_mode_${vehicleId}`,
+            `flag_attack_${vehicleId}`,
+            `flag_local_${vehicleId}`,
+            `flag_global_${vehicleId}`,
+            `inject_attack_active_${vehicleId}`,
+            `est_v_${vehicleId}`
+        ];
+        const sourceWeightKeys = log.vehicleIds.map(sourceId => `w_neighbor_from_v${sourceId}_to_${vehicleId}`);
+        return [...focusKeys, ...sourceWeightKeys].some(hasSeries);
+    });
+
+    return focusCandidates.length > 0 ? focusCandidates : candidates;
+};
+
 const filterPlotDataUntil = (source: Map<string, PlotData>, endTime: number): Map<string, PlotData> => {
     const sliceUntil = (points: DataPoint[]) => {
         let low = 0;
@@ -751,6 +791,13 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         }
 
         setIsPlaybackPlaying(isPlaying => !isPlaying);
+    };
+
+    const setPlaybackFocus = (vehicleId: number) => {
+        setPlaybackLog(currentLog => {
+            if (!currentLog || currentLog.focusVehicleId === vehicleId) return currentLog;
+            return { ...currentLog, focusVehicleId: vehicleId };
+        });
     };
 
     const formatPlaybackTime = (seconds: number) => {
@@ -1199,29 +1246,29 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
         const finalWeightLines: PlaybackLine[] = [
             {
-                key: `w0_final_${log.focusVehicleId}`,
-                label: `w0 -> V${log.focusVehicleId}`,
+                key: `w0_final_${focus}`,
+                label: `w0 -> V${focus}`,
                 color: '#3b82f6',
                 dashed: true
             },
             {
-                key: `w_self_final_${log.focusVehicleId}`,
-                label: `w_self -> V${log.focusVehicleId}`,
+                key: `w_self_final_${focus}`,
+                label: `w_self -> V${focus}`,
                 color: '#e2e8f0',
                 dashed: true
             },
             {
-                key: `w_neighbor_sum_final_${log.focusVehicleId}`,
-                label: `neighbor sum -> V${log.focusVehicleId}`,
+                key: `w_neighbor_sum_final_${focus}`,
+                label: `neighbor sum -> V${focus}`,
                 color: '#f59e0b',
                 width: 1.5
             },
-            // ...log.vehicleIds.map((sourceId, index) => ({
-            //     key: `w_neighbor_from_v${sourceId}_to_${log.focusVehicleId}`,
-            //     label: `V${sourceId} -> V${log.focusVehicleId}`,
-            //     color: playbackColors[index % playbackColors.length],
-            //     width: 1.1
-            // }))
+            ...log.vehicleIds.map((sourceId, index) => ({
+                key: `w_neighbor_from_v${sourceId}_to_${focus}`,
+                label: `V${sourceId} -> V${focus}`,
+                color: playbackColors[(index + 3) % playbackColors.length],
+                width: 1.1
+            }))
         ];
         const legacyWeightLines: PlaybackLine[] = [
             { key: 'w0', label: 'w0', color: '#e2e8f0', dashed: true },
@@ -1237,16 +1284,16 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         const hasFinalWeights = finalWeightLines.some(line => getPlaybackSeries(log, line.key).length > 0);
         const weightLines = hasFinalWeights ? finalWeightLines : legacyWeightLines;
         const weightTitle = hasFinalWeights
-            ? `Final Weights for Target V${log.focusVehicleId}`
+            ? `Final Weights for Target V${focus}`
             : 'Consensus Weights (Legacy Summary)';
 
         const componentLines: PlaybackLine[] = [
-            [`v_score_${log.focusVehicleId}`, 'velocity'],
-            [`d_score_${log.focusVehicleId}`, 'distance'],
-            [`a_score_${log.focusVehicleId}`, 'acceleration'],
-            [`h_score_${log.focusVehicleId}`, 'heading'],
-            [`b_score_${log.focusVehicleId}`, 'beacon'],
-            [`q_factor_${log.focusVehicleId}`, 'quality']
+            [`v_score_${focus}`, 'velocity'],
+            [`d_score_${focus}`, 'distance'],
+            [`a_score_${focus}`, 'acceleration'],
+            [`h_score_${focus}`, 'heading'],
+            [`b_score_${focus}`, 'beacon'],
+            [`q_factor_${focus}`, 'quality']
         ].map(([key, label], index) => ({
             key,
             label,
@@ -1254,9 +1301,9 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
         }));
 
         const gammaLines: PlaybackLine[] = [
-            [`gamma_host_${log.focusVehicleId}`, 'gamma_host'],
-            [`gamma_local_peer_${log.focusVehicleId}`, 'gamma_local_peer'],
-            [`gamma_self_${log.focusVehicleId}`, 'gamma_self']
+            [`gamma_host_${focus}`, 'gamma_host'],
+            [`gamma_local_peer_${focus}`, 'gamma_local_peer'],
+            [`gamma_self_${focus}`, 'gamma_self']
         ].map(([key, label], index) => ({
             key,
             label,
@@ -1282,9 +1329,9 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
             'Rollback Trigger', 'State', '', startTime, endTime,
             boundsForLines(log, rollbackLines, { min: 0, max: 1 }), endTime);
         drawPlaybackLinePlot(ctx, log, { x: colX(0), y: rowY(1), w: plotW, h: plotH }, componentLines,
-            `Component Scores Local Trust V${log.focusVehicleId}`, 'Score [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime);
+            `Component Scores Local Trust V${focus}`, 'Score [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime);
         drawPlaybackLinePlot(ctx, log, { x: colX(1), y: rowY(1), w: plotW, h: plotH }, gammaLines,
-            `Component Scores Global Trust V${log.focusVehicleId}`, 'Value [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime);
+            `Component Scores Global Trust V${focus}`, 'Value [0,1]', '', startTime, endTime, { min: 0, max: 1 }, endTime);
         drawPlaybackXYPlot(ctx, log, { x: colX(2), y: rowY(1), w: plotW, h: plotH }, startTime, endTime);
         drawPlaybackAttackTimeline(ctx, log, { x: colX(0), y: rowY(2), w: plotW, h: plotH }, startTime, endTime);
         drawPlaybackFlagsPlot(ctx, log, { x: colX(1), y: rowY(2), w: plotW, h: plotH }, startTime, endTime);
@@ -2419,6 +2466,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
     const playbackProgress = playbackDuration > 0 ? Math.min(100, (playbackTime / playbackDuration) * 100) : 0;
     const presetPlaybackSpeeds = [0.25, 0.5, 1, 2, 4];
     const hasPresetPlaybackSpeed = presetPlaybackSpeeds.some(speed => Math.abs(speed - playbackSpeed) < 1e-6);
+    const playbackFocusOptions = playbackLog ? getPlaybackFocusVehicleIds(playbackLog) : [];
 
     return (
         <div className="h-full bg-slate-950 flex flex-col">
@@ -2460,7 +2508,7 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
 
             {mode === 'playback' && (
                 <div className="px-4 py-2 border-b border-slate-800 bg-slate-900/80 flex flex-wrap items-center gap-4">
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2">
                         <button
                             onClick={() => fileInputRef.current?.click()}
                             className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-colors"
@@ -2530,6 +2578,28 @@ export const RealTimeDataPlot: React.FC<RealTimeDataPlotProps> = ({
                                 </button>
                             ))}
                         </div>
+                        {playbackFocusOptions.length > 1 && (
+                            <div
+                                className="flex items-center gap-1 rounded border border-slate-700 bg-slate-950/60 p-1"
+                                title="Focus target vehicle"
+                            >
+                                <Target size={13} className="text-slate-400 shrink-0" />
+                                {playbackFocusOptions.map(vehicleId => (
+                                    <button
+                                        key={vehicleId}
+                                        type="button"
+                                        onClick={() => setPlaybackFocus(vehicleId)}
+                                        className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
+                                            playbackLog?.focusVehicleId === vehicleId
+                                                ? 'bg-emerald-600 text-white'
+                                                : 'text-slate-300 hover:bg-slate-800'
+                                        }`}
+                                    >
+                                        V{vehicleId}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex items-center gap-3 flex-1 min-w-[200px]">
