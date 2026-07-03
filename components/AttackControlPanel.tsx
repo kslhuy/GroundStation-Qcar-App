@@ -34,6 +34,8 @@ const parseVehicleId = (id: string): number => {
     return match ? Number(match[0]) : Number(id);
 };
 
+const isAllSelected = (victims: string[]) => victims.includes('all');
+
 const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClose }) => {
     const [attackType, setAttackType] = useState<string>('Mix_test');
     const [caseNum, setCaseNum] = useState<number>(1);
@@ -43,7 +45,11 @@ const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClo
     const [status, setStatus] = useState<'idle' | 'active'>('idle');
 
     const maxCaseNum = CASE_LIMITS[attackType] ?? 10;
-    const availableVictims = vehicles.filter(v => v.id !== attackerId);
+    const usesFleetTargets = dataType === 'fleet' || dataType === 'both';
+    const availableVictims = usesFleetTargets
+        ? vehicles
+        : vehicles.filter(v => v.id !== attackerId);
+    const victimSelectionLabel = usesFleetTargets ? 'Select Fleet Entries' : 'Select Victims';
 
     const handleCaseKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
         if (status === 'active' || maxCaseNum > 9) return;
@@ -62,18 +68,25 @@ const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClo
     };
 
     const toggleVictim = (id: string) => {
-        setVictims(prev =>
-            prev.includes(id) ? prev.filter(vid => vid !== id) : [...prev, id]
-        );
+        setVictims(prev => {
+            if (id === 'all') {
+                return isAllSelected(prev) ? [] : ['all'];
+            }
+
+            const withoutAll = prev.filter(vid => vid !== 'all');
+            return withoutAll.includes(id)
+                ? withoutAll.filter(vid => vid !== id)
+                : [...withoutAll, id];
+        });
     };
 
     const handleTrigger = () => {
         if (!attackerId) return;
 
         const attackerIdNum = parseVehicleId(attackerId);
-        const victimIdsNum = victims
-            .map(parseVehicleId)
-            .filter(Number.isFinite);
+        const victimIdsNum = isAllSelected(victims)
+            ? [-1]
+            : victims.map(parseVehicleId).filter(Number.isFinite);
 
         bridgeService.triggerAttack(
             'all',
@@ -166,8 +179,16 @@ const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClo
 
                 {/* Victim Selection */}
                 <div className="flex-1">
-                    <label className="text-xs font-semibold text-slate-400 block mb-1">Select Victims</label>
+                    <label className="text-xs font-semibold text-slate-400 block mb-1">{victimSelectionLabel}</label>
                     <div className="bg-slate-950 border border-slate-800 rounded-lg p-2 max-h-[120px] overflow-y-auto space-y-1">
+                        <div
+                            onClick={() => status !== 'active' && toggleVictim('all')}
+                            className={`p-2 rounded cursor-pointer text-sm flex justify-between items-center transition-colors
+                                ${isAllSelected(victims) ? 'bg-red-900/30 border border-red-800 text-red-200' : 'bg-slate-900 border border-transparent text-slate-400 hover:bg-slate-800'}
+                            `}
+                        >
+                            <span>All</span>
+                        </div>
                         {availableVictims.length === 0 && <span className="text-xs text-slate-600 italic p-1">No other vehicles</span>}
                         {availableVictims.map(v => (
                             <div
@@ -188,7 +209,17 @@ const AttackControlPanel: React.FC<AttackControlPanelProps> = ({ vehicles, onClo
                     <label className="text-xs font-semibold text-slate-400 block mb-1">Target Dimension</label>
                     <select
                         value={dataType}
-                        onChange={(e) => setDataType(e.target.value)}
+                        onChange={(e) => {
+                            const nextDataType = e.target.value;
+                            setDataType(nextDataType);
+                            if (nextDataType === 'local') {
+                                setVictims(prev =>
+                                    isAllSelected(prev)
+                                        ? prev
+                                        : prev.filter(vid => vid !== attackerId)
+                                );
+                            }
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-sm text-white focus:border-red-500 outline-none"
                         disabled={status === 'active'}
                     >
