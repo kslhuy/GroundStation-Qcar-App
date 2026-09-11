@@ -4,6 +4,7 @@ import { Eye, Route, MapPin, Settings2, Play, Square, AlertOctagon, Gamepad2, Ac
 import { bridgeService } from '../services/websocketBridgeService';
 import { MAX_VELOCITY } from '../constants';
 import ControllerSettingsModal from './ControllerSettingsModal';
+import ElectronicsTwinPanel from './ElectronicsTwinPanel';
 
 interface VehicleControlPanelProps {
     vehicle: Vehicle;
@@ -179,6 +180,8 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                     <span className="text-slate-300">({vehicle.telemetry.x.toFixed(1)}, {vehicle.telemetry.y.toFixed(1)})</span>
                 </div>
             </div>
+
+            <ElectronicsTwinPanel vehicle={vehicle} />
 
             {/* Control Buttons - Always Clickable */}
             <div className="space-y-2">

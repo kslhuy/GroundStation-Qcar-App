@@ -27,6 +27,138 @@ export type FleetObserverType = typeof FLEET_OBSERVERS[number];
 export type LongitudinalControllerType = string;
 export type LateralControllerType = string;
 
+export interface ElectronicsStatus {
+  enabled: boolean;
+  healthy: boolean;
+  target_id?: string;
+  target_profile?: string;
+  topology?: 'single_node' | 'dual_node';
+  sensor_node_state?: string;
+  compute_node_state?: string;
+  node_states?: Record<string, string>;
+  nav_mcu_state: string;
+  com_mcu_state: string;
+  nav_protocol: string;
+  nav_com_interface: string;
+  sensor_compute_protocol?: string;
+  sensor_compute_interface?: string;
+  vehicle_interface: string;
+  execution_mode?: 'simulated' | 'sil_native' | 'hil_external' | 'physical';
+  firmware_backend: string;
+  hardware_target?: {
+    schema_version: number;
+    target_id: string;
+    profile: string;
+    topology: 'single_node' | 'dual_node';
+    sensor_node: HardwareNodeManifest;
+    compute_node: HardwareNodeManifest;
+    metadata: Record<string, unknown>;
+  };
+  hil?: {
+    handshake_ready: boolean;
+    link_alive?: boolean;
+    last_receive_age_ns?: number | null;
+    capability_negotiation: {
+      accepted?: boolean;
+      blockers?: string[];
+      remote_platform?: string;
+      remote_execution?: string;
+    };
+    remote_target?: Record<string, unknown> | null;
+    remote_status?: Record<string, unknown>;
+    transport?: Record<string, unknown> | null;
+  };
+  rail_3v3_v: number;
+  input_voltage_v: number;
+  nav_frames_delivered: number;
+  nav_frames_dropped: number;
+  nav_decode_errors: number;
+  vehicle_frames_delivered: number;
+  embedded_core?: {
+    enabled: boolean;
+    available: boolean;
+    mode: 'shadow' | 'native_authority';
+    configured_mode: 'shadow' | 'native_authority';
+    authority_active: boolean;
+    backend: 'native_cpp';
+    reason: string;
+    library?: string | null;
+    parity_pass: boolean;
+    authority_ready: boolean;
+    authority_blockers: string[];
+    authority_min_comparisons_per_stage: number;
+    failback_count: number;
+    last_failback_stage?: string | null;
+    last_failback_reason?: string | null;
+    last_mode_change_reason: string;
+    native_authority_uses: number;
+    native_trust_uses: number;
+    native_weight_uses: number;
+    native_correction_uses: number;
+    native_prediction_uses: number;
+    comparisons: number;
+    failures: number;
+    trust_comparisons: number;
+    weight_comparisons: number;
+    observer_comparisons: number;
+    prediction_comparisons: number;
+    trust_failures: number;
+    weight_failures: number;
+    observer_failures: number;
+    prediction_failures: number;
+    max_trust_error: number;
+    max_weight_error: number;
+    max_state_error: number;
+    max_prediction_error: number;
+    last_trust_error: number;
+    last_weight_error: number;
+    last_state_error: number;
+    last_prediction_error: number;
+    score_tolerance: number;
+    weight_tolerance: number;
+    state_tolerance: number;
+    prediction_tolerance: number;
+  };
+  v2v?: {
+    enabled: boolean;
+    mode: 'mirror' | 'firmware';
+    peer_routes: number;
+    host_tx_accepted: number;
+    firmware_tx_emitted: number;
+    radio_tx_delivered: number;
+    radio_rx_accepted: number;
+    host_rx_delivered: number;
+    dropped_board_unavailable: number;
+    dropped_no_route: number;
+    radio: {
+      delivered: number;
+      dropped: number;
+      corrupted: number;
+      last_latency_ns: number;
+    };
+  };
+}
+
+export interface HardwareNodeManifest {
+  node_id: string;
+  role: string;
+  platform: string;
+  architecture: string;
+  runtime: string;
+  execution: string;
+  clock_hz: number;
+  word_size_bits: number;
+  endianness: 'little' | 'big';
+  float_width_bits: 32 | 64;
+  max_payload_bytes: number;
+  memory_bytes: number;
+  dynamic_allocation: boolean;
+  transports: string[];
+  features: string[];
+  active_current_a: number;
+  idle_current_a: number;
+}
+
 // Telemetry Data - matches Python vehicle_logic telemetry
 export interface TelemetryData {
   x: number;
@@ -48,6 +180,7 @@ export interface TelemetryData {
   v2v_active?: boolean;
   v2v_peers?: number;
   v2v_protocol?: string;
+  electronics?: ElectronicsStatus;
 
   // Platoon Status (from periodic broadcast)
   platoon_enabled?: boolean;

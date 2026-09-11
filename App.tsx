@@ -146,6 +146,7 @@ const App: React.FC = () => {
             ...(msg.v2v_active !== undefined && { v2v_active: msg.v2v_active }),
             ...(msg.v2v_peers !== undefined && { v2v_peers: msg.v2v_peers }),
             ...(msg.v2v_protocol !== undefined && { v2v_protocol: msg.v2v_protocol }),
+            ...(msg.electronics !== undefined && { electronics: msg.electronics }),
 
             // Platoon Status (from periodic broadcast)
             ...(msg.platoon_enabled !== undefined && { platoon_enabled: msg.platoon_enabled }),

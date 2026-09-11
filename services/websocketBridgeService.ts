@@ -3,7 +3,7 @@
  * Connects to Python WebSocket bridge for QCar TCP communication
  */
 
-import { Vehicle, VehicleStatus, TelemetryData } from '../types';
+import { Vehicle, VehicleStatus, TelemetryData, ElectronicsStatus } from '../types';
 
 // Bridge configuration
 export const BRIDGE_CONFIG = {
@@ -51,6 +51,7 @@ export interface TelemetryMessage extends BridgeMessage {
     v2v_protocol?: string;
     v2v_local_rate?: number;
     v2v_fleet_rate?: number;
+    electronics?: ElectronicsStatus;
 
     platoon_enabled?: boolean;
     platoon_is_leader?: boolean;
@@ -360,6 +361,61 @@ class WebSocketBridgeService {
 
     stopLocalSensorAttack(target: string): boolean {
         return this.sendCommand('stop_local_sensor_attack', target);
+    }
+
+    setElectronicsBusFault(
+        target: string,
+        bus: 'sensor_compute' | 'nav_com' | 'vehicle' | 'v2v_radio',
+        faults: {
+            enabled?: boolean;
+            fixed_delay_s?: number;
+            jitter_s?: number;
+            drop_probability?: number;
+            bit_error_rate?: number;
+        }
+    ): boolean {
+        return this.sendCommand('set_electronics_fault', target, {
+            kind: 'bus', bus, ...faults
+        });
+    }
+
+    setElectronicsSensorFault(
+        target: string,
+        sensor: 'imu' | 'gnss' | 'magnetometer',
+        mode: 'none' | 'dropout' | 'freeze' | 'bias' | 'noise_scale',
+        value: number = 0
+    ): boolean {
+        return this.sendCommand('set_electronics_fault', target, {
+            kind: 'sensor', sensor, mode, value
+        });
+    }
+
+    setElectronicsInputVoltage(target: string, inputVoltageV: number): boolean {
+        return this.sendCommand('set_electronics_fault', target, {
+            kind: 'power', input_voltage_v: inputVoltageV
+        });
+    }
+
+    resetElectronicsTwin(target: string): boolean {
+        return this.sendCommand('reset_electronics_twin', target);
+    }
+
+    setElectronicsV2VMode(target: string, mode: 'mirror' | 'firmware'): boolean {
+        return this.sendCommand('set_electronics_fault', target, {
+            kind: 'v2v_mode', mode
+        });
+    }
+
+    setEmbeddedCoreMode(target: string, mode: 'shadow' | 'native_authority'): boolean {
+        return this.sendCommand('set_electronics_fault', target, {
+            kind: 'embedded_core_mode', mode
+        });
+    }
+
+    resetEmbeddedCoreParity(target: string): boolean {
+        return this.sendCommand('set_electronics_fault', target, {
+            kind: 'embedded_core_reset'
+        });
     }
 
     /**
