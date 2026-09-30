@@ -24,22 +24,21 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [localAttackTarget, setLocalAttackTarget] = useState<string>('imu');
     const [localAttackType, setLocalAttackType] = useState<string>('freeze');
-    const [attackMinSteps, setAttackMinSteps] = useState<number>(20);
-    const [attackMaxSteps, setAttackMaxSteps] = useState<number>(20);
+    const [attackMinSteps, setAttackMinSteps] = useState<number>(200);
+    const [attackMaxSteps, setAttackMaxSteps] = useState<number>(200);
+    const [attackSeed, setAttackSeed] = useState<number>(42);
+    const [bridgeConnected, setBridgeConnected] = useState(bridgeService.isConnected());
     const [pendingLocalAttackAction, setPendingLocalAttackAction] = useState<'starting' | 'stopping' | null>(null);
     const [localAttackFeedback, setLocalAttackFeedback] = useState<string>('');
 
     const availableLocalObservers = vehicle.telemetry.config_data?.local_observers || LOCAL_OBSERVERS;
     const availableFleetObservers = vehicle.telemetry.config_data?.fleet_observers || FLEET_OBSERVERS;
-    const isRobustKalmanNet = vehicle.telemetry.local_observer_type === 'robust_kalman_net';
+    const vehicleConnected = bridgeConnected && vehicle.status !== VehicleStatus.DISCONNECTED;
     const statusLocalAttackEnabled = Boolean(vehicle.telemetry.local_sensor_attack_enabled);
-    const localAttackEnabled = pendingLocalAttackAction === 'starting'
-        ? true
-        : pendingLocalAttackAction === 'stopping'
-            ? false
-            : statusLocalAttackEnabled;
+    const localAttackEnabled = statusLocalAttackEnabled;
     const localAttackInjecting = Boolean(vehicle.telemetry.local_sensor_attack_active);
-    const localAttackSupported = Boolean(vehicle.telemetry.local_sensor_attack_supported) || isRobustKalmanNet;
+    const localAttackSupported = Boolean(vehicle.telemetry.local_sensor_attack_supported);
+    const attackControlsDisabled = !vehicleConnected || !localAttackSupported || localAttackEnabled || pendingLocalAttackAction !== null;
     const activeBranchTypes = (vehicle.telemetry.local_sensor_attack_branch_types || 'none').replace(/wheel/g, 'velocity');
     const activeGpsAttack = vehicle.telemetry.local_sensor_attack_gps_type || 'none';
     const remainingAttackSteps = vehicle.telemetry.local_sensor_attack_remaining_steps || 0;
@@ -47,6 +46,22 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
     const isGpsTarget = localAttackTarget === 'gps';
     const branchAttackTypes = ['bias', 'scale', 'freeze', 'noise', 'ramp', 'zero_out'];
     const gpsAttackTypes = ['noise', 'freeze', 'jump', 'dropout', 'reacquisition'];
+
+    useEffect(() => bridgeService.onStatusChange(status => setBridgeConnected(status === 'connected')), []);
+
+    useEffect(() => {
+        setPendingLocalAttackAction(null);
+        setLocalAttackFeedback('');
+    }, [vehicle.id, vehicle.telemetry.local_observer_type, vehicleConnected]);
+
+    useEffect(() => {
+        if (!pendingLocalAttackAction) return;
+        const timeout = window.setTimeout(() => {
+            setPendingLocalAttackAction(null);
+            setLocalAttackFeedback('No confirmation received. Check the bridge, vehicle connection and Terminal B logs.');
+        }, 8000);
+        return () => window.clearTimeout(timeout);
+    }, [pendingLocalAttackAction]);
 
     useEffect(() => {
         if (vehicle.telemetry.local_observer_type) {
@@ -126,6 +141,7 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
             min_attack_steps: minSteps,
             max_attack_steps: maxSteps,
             max_branches_attacked: 1,
+            seed: Math.max(0, Math.trunc(attackSeed)),
         });
 
         if (success) {
@@ -326,8 +342,11 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                     >
                         {availableLocalObservers.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
-                    <button onClick={handleApplyLocalObserver} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-2 py-1 rounded">Apply</button>
+                    <button onClick={handleApplyLocalObserver} disabled={!vehicleConnected || localAttackEnabled || pendingLocalAttackAction !== null} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs px-2 py-1 rounded">Apply</button>
                 </div>
+                <p className="text-[11px] text-slate-400">
+                    Active: {vehicle.telemetry.local_observer_type || 'waiting for vehicle'}. Stop Attack before switching. Apply resets the filter at its current estimated pose.
+                </p>
 
                 {/* Fleet Observer */}
                 <div className="flex gap-2 items-center">
@@ -366,9 +385,11 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                     </span>
                 </div>
 
-                {!isRobustKalmanNet && (
+                {(!vehicleConnected || !localAttackSupported) && (
                     <div className="rounded-lg border border-amber-800/70 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-200">
-                        Local attacks only apply when the active local observer is `robust_kalman_net`.
+                        {!vehicleConnected
+                            ? 'Connect the bridge and vehicle before sending attacks.'
+                            : 'Waiting for attack support from the vehicle. Supported observers: ekf and robust_kalman_net.'}
                     </div>
                 )}
 
@@ -397,7 +418,7 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                         <select
                             value={localAttackTarget}
                             onChange={(e) => setLocalAttackTarget(e.target.value)}
-                            disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled || pendingLocalAttackAction !== null}
+                            disabled={attackControlsDisabled}
                             className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 disabled:opacity-50"
                         >
                             <option value="imu">IMU</option>
@@ -413,7 +434,7 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                         <select
                             value={localAttackType}
                             onChange={(e) => setLocalAttackType(e.target.value)}
-                            disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled}
+                            disabled={attackControlsDisabled}
                             className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 disabled:opacity-50"
                         >
                             {(isGpsTarget ? gpsAttackTypes : branchAttackTypes).map((attackType) => (
@@ -423,13 +444,13 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                     </div>
 
                     <div className="flex gap-2 items-center">
-                        <span className="text-[10px] text-slate-500 w-16">Duration:</span>
+                        <span className="text-[10px] text-slate-500 w-16">Burst:</span>
                         <input
                             type="number"
                             min="1"
                             value={attackMinSteps}
                             onChange={(e) => setAttackMinSteps(parseInt(e.target.value || '1', 10))}
-                            disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled}
+                            disabled={attackControlsDisabled}
                             className="w-20 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 disabled:opacity-50"
                         />
                         <span className="text-[10px] text-slate-500">to</span>
@@ -438,27 +459,36 @@ const VehicleControlPanel: React.FC<VehicleControlPanelProps> = ({
                             min="1"
                             value={attackMaxSteps}
                             onChange={(e) => setAttackMaxSteps(parseInt(e.target.value || '1', 10))}
-                            disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled}
+                            disabled={attackControlsDisabled}
                             className="w-20 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 disabled:opacity-50"
                         />
                         <span className="text-[10px] text-slate-500">steps</span>
                     </div>
+                    <div className="flex gap-2 items-center">
+                        <span className="text-[10px] text-slate-500 w-16">Seed:</span>
+                        <input type="number" min="0" value={attackSeed}
+                            onChange={(e) => setAttackSeed(parseInt(e.target.value || '0', 10))}
+                            disabled={attackControlsDisabled}
+                            className="w-20 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 disabled:opacity-50" />
+                    </div>
                     <div className="text-[11px] text-slate-400">
-                        1 step = 1 RKNet observer update tick. At 100 Hz, 100 steps is about 1 second.
+                        Attacks repeat until Stop Attack. Burst length is in local observer updates:
+                        200 steps is about 2 seconds at 100 Hz, longer if updates run slower.
+                        Use the same seed and settings for repeatable attack parameters.
                     </div>
                 </div>
 
                 <div className="flex gap-2">
                     <button
                         onClick={handleStartLocalSensorAttack}
-                        disabled={!localAttackSupported || !isRobustKalmanNet || localAttackEnabled || pendingLocalAttackAction !== null}
+                        disabled={attackControlsDisabled}
                         className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium bg-red-700 hover:bg-red-600 disabled:bg-slate-800 disabled:text-slate-500 text-white transition-colors"
                     >
                         <Play size={14} /> Start Attack
                     </button>
                     <button
                         onClick={handleStopLocalSensorAttack}
-                        disabled={!localAttackEnabled || pendingLocalAttackAction !== null}
+                        disabled={!vehicleConnected || !localAttackEnabled || pendingLocalAttackAction !== null}
                         className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-500 text-white transition-colors"
                     >
                         <Square size={14} /> Stop Attack

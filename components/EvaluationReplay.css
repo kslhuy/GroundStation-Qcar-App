@@ -1,0 +1,54 @@
+.evaluation-page { min-height: 100vh; background: #080e19; color: #e2e8f0; font: 14px/1.5 system-ui, sans-serif; }
+.evaluation-page * { box-sizing: border-box; }
+.evaluation-page h1, .evaluation-page h2, .evaluation-page h3, .evaluation-page p { margin: 0; }
+.evaluation-header { padding: 26px 32px; border-bottom: 1px solid #263247; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.evaluation-eyebrow { color: #34d399; letter-spacing: .13em; font-size: 11px; font-weight: 700; }
+.evaluation-page h1 { font-size: 25px; font-weight: 650; margin: 4px 0; }
+.evaluation-header p:last-child, .evaluation-info, .evaluation-note { color: #94a3b8; }
+.evaluation-header a { color: #a7f3d0; text-decoration: none; white-space: nowrap; }
+.evaluation-page main { max-width: 1700px; margin: 0 auto; padding: 24px 32px; }
+.evaluation-toolbar { display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; }
+.evaluation-toolbar label, .evaluation-player label { display: flex; gap: 6px; flex-direction: column; font-size: 12px; color: #94a3b8; }
+.evaluation-page select, .evaluation-page button { background: #142034; color: #e2e8f0; border: 1px solid #334155; border-radius: 7px; padding: 9px 12px; font: inherit; }
+.evaluation-page select { min-width: 90px; }
+.evaluation-page button { cursor: pointer; background: #34d399; color: #052e25; font-weight: 700; min-width: 84px; }
+.evaluation-page button.evaluation-secondary { background: #142034; color: #cbd5e1; }
+.evaluation-page input[type=file] { max-width: 300px; color: #cbd5e1; font: inherit; }
+.evaluation-page input[type=file]::file-selector-button { padding: 9px; background: #142034; color: #e2e8f0; border: 1px solid #334155; border-radius: 7px; cursor: pointer; margin-right: 10px; }
+.evaluation-mode { margin-left: auto; color: #a7f3d0; font-size: 11px; letter-spacing: .06em; padding-bottom: 10px; }
+.evaluation-info { display: flex; flex-direction: column; gap: 4px; margin: 18px 0; font-size: 12px; }
+.evaluation-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(390px, 1fr); gap: 18px; }
+.evaluation-card { border: 1px solid #263247; border-radius: 12px; background: #101827; overflow: hidden; }
+.evaluation-card-title { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; }
+.evaluation-page h2 { font-size: 16px; font-weight: 650; }
+.evaluation-page h3 { margin: 22px 0 10px; font-size: 13px; font-weight: 650; color: #cbd5e1; }
+.evaluation-attack, .evaluation-clean { font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 5px; }
+.evaluation-attack { background: #7f1d1d; color: #fecaca; }
+.evaluation-clean { background: #064e3b; color: #a7f3d0; }
+.evaluation-map { width: 100%; display: block; max-height: 530px; }
+.evaluation-legend { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 14px 18px; font-size: 12px; }
+.evaluation-legend label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.evaluation-page input { accent-color: #34d399; }
+.evaluation-scores { padding: 18px; }
+.evaluation-scores > p { font-size: 12px; color: #94a3b8; margin: 7px 0 14px; }
+.evaluation-table-wrap { overflow-x: auto; }
+.evaluation-page table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.evaluation-page th, .evaluation-page td { padding: 9px 6px; border-bottom: 1px solid #263247; text-align: right; }
+.evaluation-page th:first-child { text-align: left; }
+.evaluation-page thead th { color: #94a3b8; font-weight: 500; }
+.evaluation-live-values { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; }
+.evaluation-live-values > div { display: flex; flex-direction: column; gap: 2px; background: #0b1220; padding: 10px; border-radius: 6px; }
+.evaluation-live-values strong { font-size: 17px; font-variant-numeric: tabular-nums; font-weight: 500; }
+.evaluation-scores .evaluation-note { margin-top: 16px; }
+.evaluation-player { margin-top: 18px; border: 1px solid #263247; border-radius: 12px; padding: 18px; background: #101827; }
+.evaluation-player-controls { display: flex; align-items: center; gap: 10px; }
+.evaluation-player label { flex-direction: row; align-items: center; margin-left: 8px; }
+.evaluation-player output { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 16px; }
+.evaluation-timeline { position: relative; margin: 18px 0 4px; }
+.evaluation-timeline input { width: 100%; margin: 0; cursor: pointer; position: relative; height: 24px; }
+.evaluation-attack-bands { position: absolute; inset: 0 8px; }
+.evaluation-attack-bands span { position: absolute; top: 0; height: 24px; background: #ef444444; border-left: 1px solid #f87171; }
+.evaluation-player > p { font-size: 11px; color: #94a3b8; }
+.evaluation-error { background: #451a1a; border: 1px solid #b45353; padding: 14px; margin: 16px 0 !important; border-radius: 8px; }
+@media (max-width: 1050px) { .evaluation-grid { grid-template-columns: 1fr; } .evaluation-header { align-items: flex-start; } }
+@media (max-width: 640px) { .evaluation-header { padding: 18px; flex-direction: column; gap: 10px; } .evaluation-page main { padding: 18px 12px; } .evaluation-page h1 { font-size: 21px; } .evaluation-mode { margin-left: 0; } .evaluation-player-controls { flex-wrap: wrap; } .evaluation-player output { width: 100%; margin: 6px 0 0; } }

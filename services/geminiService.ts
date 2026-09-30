@@ -10,7 +10,7 @@ export const analyzeFleetStatus = async (
   try {
     // Format data for the prompt
     const vehicleSummary = vehicles.map(v => 
-      `ID: ${v.name}, Status: ${v.status}, Mode: ${v.mode}, Battery: ${v.telemetry.battery}%, Pos: (${v.telemetry.x.toFixed(1)}, ${v.telemetry.y.toFixed(1)})`
+      `ID: ${v.name}, Status: ${v.status}, Mode: ${v.telemetry.state ?? 'unknown'}, Battery: ${v.telemetry.battery}%, Pos: (${v.telemetry.x.toFixed(1)}, ${v.telemetry.y.toFixed(1)})`
     ).join('\n');
 
     const logSummary = recentLogs.slice(-10).map(l => 

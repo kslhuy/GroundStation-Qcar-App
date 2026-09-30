@@ -1,5 +1,11 @@
 # QCar Ground Station - Complete Setup Guide
 
+## RobustKLNet: training and evaluation
+
+See **[ROBUST_KALMANNET_WORKFLOW.md](../ROBUST_KALMANNET_WORKFLOW.md)** for the Vietnamese setup guide, headless tests, web animation, training, and live fake-vehicle commands.
+
+From the parent `QCar2_Cran` folder, double-click `robust_workflow.cmd` for the menu, or run `robust_workflow.cmd web` to evaluate and open the replay. Existing results: `robust_workflow.cmd replay`. The replay page is `http://127.0.0.1:3000/?evaluation=1`; it does not require the Python bridge.
+
 A modern web-based GUI for controlling your QCar fleet in real-time.
 
 ---

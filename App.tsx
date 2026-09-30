@@ -369,6 +369,7 @@ const App: React.FC = () => {
 
         {/* Right Controls */}
         <div className="flex items-center gap-2 md:gap-3">
+          <a href="/?evaluation=1" className="text-xs text-emerald-400 hover:text-white px-2" title="Replay saved RobustKLNet evaluation results">Evaluation</a>
           <button
             onClick={handleConnectBridge}
             className={`p-2 rounded-lg transition-all ${bridgeStatus === 'connected' ? 'bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
